@@ -14,13 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      interview_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          interview_id: string
+          role: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          interview_id: string
+          role: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          interview_id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_messages_interview_id_fkey"
+            columns: ["interview_id"]
+            isOneToOne: false
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interviews: {
+        Row: {
+          candidate_email: string
+          candidate_name: string | null
+          completed_at: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          interview_url: string | null
+          job_role: string
+          recruiter_id: string
+          score: number | null
+          status: string
+        }
+        Insert: {
+          candidate_email: string
+          candidate_name?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          interview_url?: string | null
+          job_role: string
+          recruiter_id: string
+          score?: number | null
+          status?: string
+        }
+        Update: {
+          candidate_email?: string
+          candidate_name?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          interview_url?: string | null
+          job_role?: string
+          recruiter_id?: string
+          score?: number | null
+          status?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      update_interview_status: {
+        Args: { p_interview_id: string; p_score?: number; p_status: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

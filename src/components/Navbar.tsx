@@ -45,11 +45,11 @@ const Navbar = () => {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm">
-              Sign In
+            <Button variant="ghost" size="sm" asChild>
+              <a href="/auth">Sign In</a>
             </Button>
-            <Button variant="hero" size="sm">
-              Get Started
+            <Button variant="hero" size="sm" asChild>
+              <a href="/auth">Get Started</a>
             </Button>
           </div>
 
@@ -82,8 +82,8 @@ const Navbar = () => {
                 </a>
               ))}
               <div className="flex flex-col gap-2 mt-4">
-                <Button variant="ghost">Sign In</Button>
-                <Button variant="hero">Get Started</Button>
+                <Button variant="ghost" asChild><a href="/auth">Sign In</a></Button>
+                <Button variant="hero" asChild><a href="/auth">Get Started</a></Button>
               </div>
             </div>
           </motion.div>
