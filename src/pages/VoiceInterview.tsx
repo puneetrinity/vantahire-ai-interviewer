@@ -67,7 +67,10 @@ const VoiceInterview = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const [chatUploadedFile, setChatUploadedFile] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const { toast } = useToast();
   const contextSentRef = useRef(false);
 
@@ -200,13 +203,15 @@ const VoiceInterview = () => {
 
   const startVideo = async () => {
     try {
+      // Get video and audio for recording
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
-        audio: false,
+        audio: true,
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true; // Mute to prevent feedback
       }
       setVideoEnabled(true);
     } catch (error) {
@@ -218,6 +223,103 @@ const VoiceInterview = () => {
       });
     }
   };
+
+  const startRecording = useCallback(() => {
+    if (!streamRef.current) {
+      console.error("No stream available for recording");
+      return;
+    }
+
+    try {
+      recordedChunksRef.current = [];
+      
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+          ? 'video/webm;codecs=vp8,opus'
+          : 'video/webm';
+
+      const mediaRecorder = new MediaRecorder(streamRef.current, {
+        mimeType,
+        videoBitsPerSecond: 1000000, // 1 Mbps
+      });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onerror = (error) => {
+        console.error("MediaRecorder error:", error);
+      };
+
+      mediaRecorder.start(1000); // Collect data every second
+      mediaRecorderRef.current = mediaRecorder;
+      setIsRecording(true);
+      console.log("Recording started");
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+    }
+  }, []);
+
+  const stopRecording = useCallback(async (): Promise<string | null> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+        console.log("No active recording to stop");
+        resolve(null);
+        return;
+      }
+
+      mediaRecorderRef.current.onstop = async () => {
+        try {
+          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          console.log("Recording stopped, blob size:", blob.size);
+
+          if (blob.size === 0) {
+            console.log("Empty recording, skipping upload");
+            resolve(null);
+            return;
+          }
+
+          // Upload to Supabase storage
+          const fileName = `${id}/recording-${Date.now()}.webm`;
+          const { error: uploadError } = await supabase.storage
+            .from('interview-documents')
+            .upload(fileName, blob, {
+              contentType: 'video/webm',
+            });
+
+          if (uploadError) {
+            console.error("Failed to upload recording:", uploadError);
+            resolve(null);
+            return;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('interview-documents')
+            .getPublicUrl(fileName);
+
+          // Update interview with recording URL
+          await supabase
+            .from('interviews')
+            .update({ recording_url: publicUrl })
+            .eq('id', id);
+
+          console.log("Recording uploaded:", publicUrl);
+          resolve(publicUrl);
+        } catch (error) {
+          console.error("Error processing recording:", error);
+          resolve(null);
+        } finally {
+          recordedChunksRef.current = [];
+          setIsRecording(false);
+        }
+      };
+
+      mediaRecorderRef.current.stop();
+    });
+  }, [id]);
 
   const stopVideo = () => {
     if (streamRef.current) {
@@ -365,6 +467,9 @@ const VoiceInterview = () => {
         agentId: ELEVENLABS_AGENT_ID,
         connectionType: "webrtc",
       });
+
+      // Start recording automatically
+      startRecording();
 
       // Send context to the agent after session starts
       const context = buildInterviewContext();
@@ -525,13 +630,22 @@ const VoiceInterview = () => {
   };
 
   const handleInterviewEnd = async () => {
-    stopVideo();
-    
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
 
     setIsGeneratingSummary(true);
+
+    // Stop recording and upload
+    const recordingUrl = await stopRecording();
+    if (recordingUrl) {
+      toast({
+        title: "Recording Saved",
+        description: "Your interview recording has been saved.",
+      });
+    }
+
+    stopVideo();
 
     // Always update the interview status to completed first
     try {
@@ -823,6 +937,14 @@ const VoiceInterview = () => {
                     {interview.candidate_name || "Candidate"}
                   </span>
                 </div>
+
+                {/* Recording indicator */}
+                {isRecording && (
+                  <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-destructive/90 backdrop-blur-sm">
+                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                    <span className="text-xs font-medium text-white">REC</span>
+                  </div>
+                )}
               </div>
 
               {/* Controls */}
