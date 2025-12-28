@@ -29,7 +29,8 @@ import {
   Star,
   CheckCircle,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  Video
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -46,6 +47,7 @@ interface Interview {
   candidate_resume_url: string | null;
   candidate_notes: string | null;
   time_limit_minutes: number | null;
+  recording_url: string | null;
 }
 
 interface InterviewSummary {
@@ -434,14 +436,26 @@ const Dashboard = () => {
                     </span>
                     <div className="flex items-center gap-1">
                       {interview.status === "completed" && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openSummary(interview)}
-                          title="View Summary"
-                        >
-                          <FileText className="w-4 h-4 text-primary" />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openSummary(interview)}
+                            title="View Summary"
+                          >
+                            <FileText className="w-4 h-4 text-primary" />
+                          </Button>
+                          {interview.recording_url && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => window.open(interview.recording_url!, "_blank")}
+                              title="Watch Recording"
+                            >
+                              <Video className="w-4 h-4 text-accent" />
+                            </Button>
+                          )}
+                        </>
                       )}
                       <Button
                         variant="ghost"
