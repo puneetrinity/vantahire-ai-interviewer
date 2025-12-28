@@ -24,7 +24,8 @@ import {
   Clock,
   AlertTriangle,
   Send,
-  MessageSquare
+  MessageSquare,
+  Paperclip
 } from "lucide-react";
 
 interface Interview {
@@ -64,7 +65,9 @@ const VoiceInterview = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const [chatUploadedFile, setChatUploadedFile] = useState<string | null>(null);
   const { toast } = useToast();
   const contextSentRef = useRef(false);
 
@@ -437,6 +440,87 @@ const VoiceInterview = () => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendChatMessage();
+    }
+  };
+
+  const handleChatFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid File Type",
+        description: "Please upload a PDF, DOC, DOCX, or TXT file.",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "File Too Large",
+        description: "File size must be less than 10MB.",
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${id}/chat-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('interview-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('interview-documents')
+        .getPublicUrl(filePath);
+
+      setChatUploadedFile(file.name);
+
+      // Send a message to the AI about the uploaded file
+      const uploadMessage = `[Shared document: ${file.name}]`;
+      setTranscript(prev => [...prev, { role: "user", text: uploadMessage }]);
+      
+      await supabase.from("interview_messages").insert({
+        interview_id: id,
+        role: "user",
+        content: uploadMessage,
+      });
+
+      // Notify the AI agent about the document
+      if (conversation.status === "connected") {
+        conversation.sendContextualUpdate(`The candidate has just shared a document: ${file.name}. Please acknowledge that you received it.`);
+      }
+
+      toast({
+        title: "File Shared",
+        description: `${file.name} has been shared with the interviewer.`,
+      });
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: "Could not upload the file. Please try again.",
+      });
+    } finally {
+      setIsUploading(false);
+      if (chatFileInputRef.current) {
+        chatFileInputRef.current.value = '';
+      }
     }
   };
 
@@ -829,6 +913,27 @@ const VoiceInterview = () => {
                     Having audio issues? Type your response below:
                   </p>
                   <div className="flex gap-2">
+                    <input
+                      type="file"
+                      ref={chatFileInputRef}
+                      onChange={handleChatFileUpload}
+                      accept=".pdf,.doc,.docx,.txt"
+                      className="hidden"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => chatFileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="shrink-0 text-primary-foreground/60 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                      title="Share resume or JD"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Paperclip className="w-4 h-4" />
+                      )}
+                    </Button>
                     <Input
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
