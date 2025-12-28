@@ -167,16 +167,6 @@ const VoiceInterview = () => {
       // Start video
       await startVideo();
 
-      // Get token from edge function
-      const { data, error } = await supabase.functions.invoke(
-        "elevenlabs-conversation-token",
-        { body: { agentId: ELEVENLABS_AGENT_ID } }
-      );
-
-      if (error || !data?.token) {
-        throw new Error(error?.message || "No token received");
-      }
-
       // Update interview status
       await supabase
         .from("interviews")
@@ -185,9 +175,10 @@ const VoiceInterview = () => {
 
       setInterview(prev => prev ? { ...prev, status: "in_progress" } : null);
 
-      // Start the conversation with WebRTC
+      // Connect directly with agent ID (for public agents)
+      // Make sure your agent is set to "Public" in ElevenLabs dashboard
       await conversation.startSession({
-        conversationToken: data.token,
+        agentId: ELEVENLABS_AGENT_ID,
         connectionType: "webrtc",
       });
     } catch (error: any) {
