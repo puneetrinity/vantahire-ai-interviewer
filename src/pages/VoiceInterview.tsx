@@ -398,8 +398,25 @@ const VoiceInterview = () => {
 
     setIsGeneratingSummary(true);
 
+    // Always update the interview status to completed first
     try {
-      // Generate AI summary
+      const { error: updateError } = await supabase
+        .from("interviews")
+        .update({ 
+          status: "completed",
+          completed_at: new Date().toISOString()
+        })
+        .eq("id", id);
+      
+      if (updateError) {
+        console.error('Failed to update interview status:', updateError);
+      }
+    } catch (error) {
+      console.error('Error updating interview status:', error);
+    }
+
+    // Then try to generate AI summary (non-blocking)
+    try {
       const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
         body: { interviewId: id }
       });
