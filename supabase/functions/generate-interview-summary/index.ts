@@ -80,14 +80,14 @@ Provide a comprehensive interview summary in the following JSON format:
 
 Respond ONLY with valid JSON, no additional text.`;
 
-    const response = await fetch('https://ai-gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-5-mini',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: 'You are an expert HR recruiter providing interview analysis.' },
           { role: 'user', content: summaryPrompt }
