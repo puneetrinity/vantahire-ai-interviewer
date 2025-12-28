@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useConversation } from "@elevenlabs/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Zap, 
@@ -16,7 +18,11 @@ import {
   Loader2, 
   XCircle,
   Volume2,
-  User
+  User,
+  Upload,
+  FileText,
+  Clock,
+  AlertTriangle
 } from "lucide-react";
 
 interface Interview {
@@ -26,20 +32,34 @@ interface Interview {
   job_role: string;
   status: string;
   score: number | null;
+  time_limit_minutes: number | null;
+  started_at: string | null;
+  candidate_resume_url: string | null;
+  candidate_notes: string | null;
 }
 
 const ELEVENLABS_AGENT_ID = "agent_3501kdkg4t5qfppvw6h1ve94teyq";
+const DEFAULT_TIME_LIMIT = 30; // 30 minutes
 
 const VoiceInterview = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [interview, setInterview] = useState<Interview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [showPreInterview, setShowPreInterview] = useState(true);
+  const [candidateNotes, setCandidateNotes] = useState("");
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const conversation = useConversation({
@@ -53,12 +73,10 @@ const VoiceInterview = () => {
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
-      // Handle transcript messages
       if (message.message) {
         const role = message.source === "user" ? "user" : "assistant";
         setTranscript(prev => [...prev, { role, text: message.message }]);
         
-        // Save to database
         supabase.from("interview_messages").insert({
           interview_id: id,
           role,
@@ -83,8 +101,43 @@ const VoiceInterview = () => {
     return () => {
       stopVideo();
       conversation.endSession();
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
     };
   }, [id]);
+
+  // Timer effect
+  useEffect(() => {
+    if (interview?.status === "in_progress" && interview.started_at) {
+      const timeLimit = (interview.time_limit_minutes || DEFAULT_TIME_LIMIT) * 60 * 1000;
+      const startTime = new Date(interview.started_at).getTime();
+      
+      const updateTimer = () => {
+        const elapsed = Date.now() - startTime;
+        const remaining = Math.max(0, timeLimit - elapsed);
+        setTimeRemaining(Math.floor(remaining / 1000));
+        
+        if (remaining <= 0) {
+          toast({
+            variant: "destructive",
+            title: "Time's Up!",
+            description: "The interview time limit has been reached.",
+          });
+          endInterview();
+        }
+      };
+      
+      updateTimer();
+      timerRef.current = setInterval(updateTimer, 1000);
+      
+      return () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+      };
+    }
+  }, [interview?.status, interview?.started_at]);
 
   const fetchInterview = async () => {
     try {
@@ -100,7 +153,13 @@ const VoiceInterview = () => {
         return;
       }
 
-      setInterview(data);
+      setInterview(data as Interview);
+      if (data.candidate_notes) {
+        setCandidateNotes(data.candidate_notes);
+      }
+      if (data.status === "in_progress" || data.status === "completed") {
+        setShowPreInterview(false);
+      }
     } catch (error: any) {
       console.error("Error fetching interview:", error);
       setError("Failed to load interview");
@@ -113,7 +172,7 @@ const VoiceInterview = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
-        audio: false, // Audio handled by ElevenLabs
+        audio: false,
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -149,6 +208,92 @@ const VoiceInterview = () => {
     }
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid File Type",
+        description: "Please upload a PDF, DOC, DOCX, or TXT file.",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "File Too Large",
+        description: "File size must be less than 10MB.",
+      });
+      return;
+    }
+
+    setUploadedFile(file);
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('interview-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('interview-documents')
+        .getPublicUrl(filePath);
+
+      await supabase
+        .from('interviews')
+        .update({ candidate_resume_url: publicUrl })
+        .eq('id', id);
+
+      toast({
+        title: "File Uploaded",
+        description: "Your document has been uploaded successfully.",
+      });
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: "Could not upload the file. Please try again.",
+      });
+      setUploadedFile(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const saveNotes = async () => {
+    if (!candidateNotes.trim()) return;
+
+    try {
+      await supabase
+        .from('interviews')
+        .update({ candidate_notes: candidateNotes })
+        .eq('id', id);
+
+      toast({
+        title: "Notes Saved",
+        description: "Your notes have been saved.",
+      });
+    } catch (error) {
+      console.error("Error saving notes:", error);
+    }
+  };
+
   const startInterview = useCallback(async () => {
     if (!ELEVENLABS_AGENT_ID) {
       toast({
@@ -159,24 +304,33 @@ const VoiceInterview = () => {
       return;
     }
 
-    setIsConnecting(true);
-    try {
-      // Request microphone permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Save notes before starting
+    if (candidateNotes.trim()) {
+      await saveNotes();
+    }
 
-      // Start video
+    setIsConnecting(true);
+    setShowPreInterview(false);
+
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
       await startVideo();
 
-      // Update interview status
+      const now = new Date().toISOString();
       await supabase
         .from("interviews")
-        .update({ status: "in_progress" })
+        .update({ 
+          status: "in_progress",
+          started_at: now
+        })
         .eq("id", id);
 
-      setInterview(prev => prev ? { ...prev, status: "in_progress" } : null);
+      setInterview(prev => prev ? { 
+        ...prev, 
+        status: "in_progress",
+        started_at: now
+      } : null);
 
-      // Connect directly with agent ID (for public agents)
-      // Make sure your agent is set to "Public" in ElevenLabs dashboard
       await conversation.startSession({
         agentId: ELEVENLABS_AGENT_ID,
         connectionType: "webrtc",
@@ -188,10 +342,11 @@ const VoiceInterview = () => {
         title: "Connection Failed",
         description: error.message || "Could not start the interview. Please try again.",
       });
+      setShowPreInterview(true);
     } finally {
       setIsConnecting(false);
     }
-  }, [conversation, id, toast]);
+  }, [conversation, id, toast, candidateNotes]);
 
   const endInterview = useCallback(async () => {
     await conversation.endSession();
@@ -200,22 +355,45 @@ const VoiceInterview = () => {
   const handleInterviewEnd = async () => {
     stopVideo();
     
-    // Update interview status
-    await supabase
-      .from("interviews")
-      .update({ 
-        status: "completed",
-        score: 7.5 // TODO: Get actual score from AI evaluation
-      })
-      .eq("id", id);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
 
+    setIsGeneratingSummary(true);
+
+    try {
+      // Generate AI summary
+      const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
+        body: { interviewId: id }
+      });
+
+      if (error) {
+        console.error('Summary generation error:', error);
+      } else {
+        console.log('Summary generated:', data);
+      }
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+
+    // Update local state
     setInterview(prev => prev ? { ...prev, status: "completed" } : null);
 
     toast({
       title: "Interview Complete",
-      description: "Thank you for completing the interview!",
+      description: "Thank you for completing the interview! The recruiter will review your responses.",
     });
   };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const isTimeWarning = timeRemaining !== null && timeRemaining <= 300; // 5 minutes warning
 
   if (loading) {
     return (
@@ -243,9 +421,117 @@ const VoiceInterview = () => {
   const isConnected = conversation.status === "connected";
   const isSpeaking = conversation.isSpeaking;
 
+  // Pre-interview setup screen
+  if (showPreInterview && interview.status !== "completed") {
+    return (
+      <div className="min-h-screen bg-foreground text-primary-foreground">
+        <header className="border-b border-primary-foreground/10">
+          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center">
+                <Zap className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <span className="text-xl font-bold">InterviewAI</span>
+            </div>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-12 max-w-2xl">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-2">Welcome to Your Interview</h1>
+              <p className="text-primary-foreground/60">
+                Position: <span className="font-medium text-primary-foreground">{interview.job_role}</span>
+              </p>
+              <div className="flex items-center justify-center gap-2 mt-4 text-primary-foreground/60">
+                <Clock className="w-4 h-4" />
+                <span>Time limit: {interview.time_limit_minutes || DEFAULT_TIME_LIMIT} minutes</span>
+              </div>
+            </div>
+
+            {/* Document Upload Section */}
+            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Upload Documents (Optional)
+              </h3>
+              <p className="text-sm text-primary-foreground/60 mb-4">
+                Upload your resume or job description for better context
+              </p>
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+              />
+              
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="w-full border-primary-foreground/20 hover:bg-primary-foreground/10"
+              >
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Upload className="w-4 h-4 mr-2" />
+                )}
+                {uploadedFile ? uploadedFile.name : "Choose File"}
+              </Button>
+              
+              {uploadedFile && (
+                <p className="text-sm text-accent mt-2">✓ File uploaded successfully</p>
+              )}
+            </div>
+
+            {/* Notes Section */}
+            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
+              <h3 className="text-lg font-semibold mb-4">Additional Notes</h3>
+              <p className="text-sm text-primary-foreground/60 mb-4">
+                Paste any additional information you'd like the interviewer to consider
+              </p>
+              <Textarea
+                value={candidateNotes}
+                onChange={(e) => setCandidateNotes(e.target.value)}
+                placeholder="Paste your resume text, job description, or any notes here..."
+                className="min-h-[150px] bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40"
+              />
+            </div>
+
+            {/* Start Button */}
+            <Button
+              variant="hero"
+              size="lg"
+              onClick={startInterview}
+              disabled={isConnecting}
+              className="w-full rounded-xl h-14 text-lg"
+            >
+              {isConnecting ? (
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              ) : (
+                <Phone className="w-5 h-5 mr-2" />
+              )}
+              Start Interview
+            </Button>
+
+            <p className="text-center text-sm text-primary-foreground/40">
+              You'll need to allow microphone and camera access
+            </p>
+          </motion.div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-foreground text-primary-foreground">
-      {/* Header */}
+      {/* Header with Timer */}
       <header className="border-b border-primary-foreground/10">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -254,151 +540,181 @@ const VoiceInterview = () => {
             </div>
             <span className="text-xl font-bold">InterviewAI</span>
           </div>
-          <div className="text-right">
-            <div className="text-sm font-medium">{interview.job_role}</div>
-            <div className="text-xs text-primary-foreground/60 capitalize">
-              {interview.status === "in_progress" ? "In Progress" : interview.status}
+          
+          <div className="flex items-center gap-4">
+            {/* Timer */}
+            {timeRemaining !== null && interview.status === "in_progress" && (
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                isTimeWarning ? "bg-destructive/20 text-destructive" : "bg-primary-foreground/10"
+              }`}>
+                {isTimeWarning && <AlertTriangle className="w-4 h-4" />}
+                <Clock className="w-4 h-4" />
+                <span className="font-mono font-bold">{formatTime(timeRemaining)}</span>
+              </div>
+            )}
+            
+            <div className="text-right">
+              <div className="text-sm font-medium">{interview.job_role}</div>
+              <div className="text-xs text-primary-foreground/60 capitalize">
+                {interview.status === "in_progress" ? "In Progress" : interview.status}
+              </div>
             </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Video Panel */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* AI Interviewer Status */}
-            <motion.div 
-              className={`p-6 rounded-2xl border ${
-                isSpeaking 
-                  ? "border-primary bg-primary/10" 
-                  : "border-primary-foreground/10 bg-primary-foreground/5"
-              } transition-all`}
-            >
-              <div className="flex items-center gap-4">
-                <div className={`w-16 h-16 rounded-full gradient-bg flex items-center justify-center ${
-                  isSpeaking ? "animate-pulse" : ""
-                }`}>
-                  <Volume2 className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold">AI Interviewer</h3>
-                  <p className="text-sm text-primary-foreground/60">
-                    {!isConnected 
-                      ? "Waiting to start..." 
-                      : isSpeaking 
-                        ? "Speaking..." 
-                        : "Listening..."}
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* Candidate Video */}
-            <div className="relative aspect-video bg-primary-foreground/5 rounded-2xl overflow-hidden border border-primary-foreground/10">
-              {videoEnabled ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-24 h-24 rounded-full bg-primary-foreground/10 flex items-center justify-center">
-                    <User className="w-12 h-12 text-primary-foreground/40" />
+        {isGeneratingSummary ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Generating Interview Summary</h2>
+            <p className="text-primary-foreground/60">Please wait while we analyze your interview...</p>
+          </div>
+        ) : interview.status === "completed" ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center mb-6">
+              <FileText className="w-10 h-10 text-accent" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Interview Completed</h2>
+            <p className="text-primary-foreground/60 mb-6 max-w-md">
+              Thank you for completing your interview. The recruiter has been notified and will review your responses and AI summary.
+            </p>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Video Panel */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* AI Interviewer Status */}
+              <motion.div 
+                className={`p-6 rounded-2xl border ${
+                  isSpeaking 
+                    ? "border-primary bg-primary/10" 
+                    : "border-primary-foreground/10 bg-primary-foreground/5"
+                } transition-all`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`w-16 h-16 rounded-full gradient-bg flex items-center justify-center ${
+                    isSpeaking ? "animate-pulse" : ""
+                  }`}>
+                    <Volume2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">AI Interviewer</h3>
+                    <p className="text-sm text-primary-foreground/60">
+                      {!isConnected 
+                        ? "Waiting to start..." 
+                        : isSpeaking 
+                          ? "Speaking..." 
+                          : "Listening..."}
+                    </p>
                   </div>
                 </div>
-              )}
+              </motion.div>
 
-              {/* Candidate Name Overlay */}
-              <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-foreground/80 backdrop-blur-sm">
-                <span className="text-sm font-medium">
-                  {interview.candidate_name || "Candidate"}
-                </span>
+              {/* Candidate Video */}
+              <div className="relative aspect-video bg-primary-foreground/5 rounded-2xl overflow-hidden border border-primary-foreground/10">
+                {videoEnabled ? (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-24 h-24 rounded-full bg-primary-foreground/10 flex items-center justify-center">
+                      <User className="w-12 h-12 text-primary-foreground/40" />
+                    </div>
+                  </div>
+                )}
+
+                <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-foreground/80 backdrop-blur-sm">
+                  <span className="text-sm font-medium">
+                    {interview.candidate_name || "Candidate"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="flex items-center justify-center gap-4">
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={toggleVideo}
+                  className={`rounded-full w-14 h-14 ${!videoEnabled ? "bg-destructive text-destructive-foreground" : "bg-primary-foreground/10"}`}
+                >
+                  {videoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
+                </Button>
+
+                {!isConnected ? (
+                  <Button
+                    variant="hero"
+                    size="lg"
+                    onClick={startInterview}
+                    disabled={isConnecting || interview.status === "completed"}
+                    className="rounded-full px-8"
+                  >
+                    {isConnecting ? (
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    ) : (
+                      <Phone className="w-5 h-5 mr-2" />
+                    )}
+                    {interview.status === "completed" ? "Interview Completed" : "Start Interview"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    size="lg"
+                    onClick={endInterview}
+                    className="rounded-full px-8"
+                  >
+                    <PhoneOff className="w-5 h-5 mr-2" />
+                    End Interview
+                  </Button>
+                )}
+
+                <div className={`rounded-full w-14 h-14 flex items-center justify-center ${
+                  isConnected ? "bg-accent text-accent-foreground" : "bg-primary-foreground/10"
+                }`}>
+                  {isConnected ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                </div>
               </div>
             </div>
 
-            {/* Controls */}
-            <div className="flex items-center justify-center gap-4">
-              <Button
-                variant="ghost"
-                size="lg"
-                onClick={toggleVideo}
-                className={`rounded-full w-14 h-14 ${!videoEnabled ? "bg-destructive text-destructive-foreground" : "bg-primary-foreground/10"}`}
-              >
-                {videoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
-              </Button>
-
-              {!isConnected ? (
-                <Button
-                  variant="hero"
-                  size="lg"
-                  onClick={startInterview}
-                  disabled={isConnecting || interview.status === "completed"}
-                  className="rounded-full px-8"
-                >
-                  {isConnecting ? (
-                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                  ) : (
-                    <Phone className="w-5 h-5 mr-2" />
-                  )}
-                  {interview.status === "completed" ? "Interview Completed" : "Start Interview"}
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  size="lg"
-                  onClick={endInterview}
-                  className="rounded-full px-8"
-                >
-                  <PhoneOff className="w-5 h-5 mr-2" />
-                  End Interview
-                </Button>
-              )}
-
-              <div className={`rounded-full w-14 h-14 flex items-center justify-center ${
-                isConnected ? "bg-accent text-accent-foreground" : "bg-primary-foreground/10"
-              }`}>
-                {isConnected ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+            {/* Transcript Panel */}
+            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
+              <h3 className="text-lg font-semibold mb-4">Live Transcript</h3>
+              <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                {transcript.length === 0 ? (
+                  <p className="text-sm text-primary-foreground/40 text-center py-8">
+                    Transcript will appear here when the interview starts...
+                  </p>
+                ) : (
+                  <AnimatePresence>
+                    {transcript.map((item, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`p-3 rounded-lg ${
+                          item.role === "user"
+                            ? "bg-primary/20 ml-4"
+                            : "bg-primary-foreground/10 mr-4"
+                        }`}
+                      >
+                        <p className="text-xs text-primary-foreground/60 mb-1">
+                          {item.role === "user" ? "You" : "AI Interviewer"}
+                        </p>
+                        <p className="text-sm">{item.text}</p>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                )}
               </div>
             </div>
           </div>
-
-          {/* Transcript Panel */}
-          <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
-            <h3 className="text-lg font-semibold mb-4">Live Transcript</h3>
-            <div className="space-y-4 max-h-[500px] overflow-y-auto">
-              {transcript.length === 0 ? (
-                <p className="text-sm text-primary-foreground/40 text-center py-8">
-                  Transcript will appear here when the interview starts...
-                </p>
-              ) : (
-                <AnimatePresence>
-                  {transcript.map((item, index) => (
-                    <motion.div
-                      key={index}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`p-3 rounded-lg ${
-                        item.role === "user"
-                          ? "bg-primary/20 ml-4"
-                          : "bg-primary-foreground/10 mr-4"
-                      }`}
-                    >
-                      <p className="text-xs text-primary-foreground/60 mb-1">
-                        {item.role === "user" ? "You" : "AI Interviewer"}
-                      </p>
-                      <p className="text-sm">{item.text}</p>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              )}
-            </div>
-          </div>
-        </div>
-
+        )}
       </main>
     </div>
   );

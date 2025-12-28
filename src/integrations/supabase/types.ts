@@ -50,41 +50,59 @@ export type Database = {
         Row: {
           candidate_email: string
           candidate_name: string | null
+          candidate_notes: string | null
+          candidate_resume_url: string | null
           completed_at: string | null
           created_at: string
           expires_at: string | null
           id: string
           interview_url: string | null
           job_role: string
+          recording_url: string | null
           recruiter_id: string
           score: number | null
+          started_at: string | null
           status: string
+          time_limit_minutes: number | null
+          transcript_summary: string | null
         }
         Insert: {
           candidate_email: string
           candidate_name?: string | null
+          candidate_notes?: string | null
+          candidate_resume_url?: string | null
           completed_at?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
           interview_url?: string | null
           job_role: string
+          recording_url?: string | null
           recruiter_id: string
           score?: number | null
+          started_at?: string | null
           status?: string
+          time_limit_minutes?: number | null
+          transcript_summary?: string | null
         }
         Update: {
           candidate_email?: string
           candidate_name?: string | null
+          candidate_notes?: string | null
+          candidate_resume_url?: string | null
           completed_at?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
           interview_url?: string | null
           job_role?: string
+          recording_url?: string | null
           recruiter_id?: string
           score?: number | null
+          started_at?: string | null
           status?: string
+          time_limit_minutes?: number | null
+          transcript_summary?: string | null
         }
         Relationships: []
       }

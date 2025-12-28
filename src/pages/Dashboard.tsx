@@ -21,10 +21,15 @@ import {
   Clock,
   TrendingUp,
   Play,
-  MoreHorizontal,
   Copy,
   ExternalLink,
-  Trash2
+  Trash2,
+  FileText,
+  MessageSquare,
+  Star,
+  CheckCircle,
+  XCircle,
+  HelpCircle
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -37,6 +42,22 @@ interface Interview {
   score: number | null;
   created_at: string;
   completed_at: string | null;
+  transcript_summary: string | null;
+  candidate_resume_url: string | null;
+  candidate_notes: string | null;
+  time_limit_minutes: number | null;
+}
+
+interface InterviewSummary {
+  overallScore: number;
+  summary: string;
+  strengths: string[];
+  areasForImprovement: string[];
+  keyTakeaways: string[];
+  recommendation: string;
+  communicationScore: number;
+  technicalScore: number;
+  cultureFitScore: number;
 }
 
 const Dashboard = () => {
@@ -44,6 +65,9 @@ const Dashboard = () => {
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
+  const [transcriptMessages, setTranscriptMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [newInterview, setNewInterview] = useState({
     candidateEmail: "",
     candidateName: "",
@@ -83,7 +107,7 @@ const Dashboard = () => {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setInterviews(data || []);
+      setInterviews((data as Interview[]) || []);
     } catch (error: any) {
       console.error("Error fetching interviews:", error);
       toast({
@@ -93,6 +117,21 @@ const Dashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTranscript = async (interviewId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("interview_messages")
+        .select("*")
+        .eq("interview_id", interviewId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setTranscriptMessages(data || []);
+    } catch (error) {
+      console.error("Error fetching transcript:", error);
     }
   };
 
@@ -114,7 +153,8 @@ const Dashboard = () => {
           candidate_email: newInterview.candidateEmail,
           candidate_name: newInterview.candidateName || null,
           job_role: newInterview.jobRole,
-          status: "pending"
+          status: "pending",
+          time_limit_minutes: 30
         })
         .select()
         .single();
@@ -126,7 +166,7 @@ const Dashboard = () => {
         description: "Share the interview link with your candidate."
       });
 
-      setInterviews([data, ...interviews]);
+      setInterviews([data as Interview, ...interviews]);
       setCreateDialogOpen(false);
       setNewInterview({ candidateEmail: "", candidateName: "", jobRole: "" });
     } catch (error: any) {
@@ -142,7 +182,7 @@ const Dashboard = () => {
   };
 
   const copyInterviewLink = (id: string) => {
-    const url = `${window.location.origin}/interview/${id}`;
+    const url = `${window.location.origin}/voice-interview/${id}`;
     navigator.clipboard.writeText(url);
     toast({
       title: "Link Copied",
@@ -169,6 +209,12 @@ const Dashboard = () => {
     }
   };
 
+  const openSummary = async (interview: Interview) => {
+    setSelectedInterview(interview);
+    setSummaryDialogOpen(true);
+    await fetchTranscript(interview.id);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed": return "bg-accent/20 text-accent";
@@ -176,6 +222,25 @@ const Dashboard = () => {
       case "pending": return "bg-muted text-muted-foreground";
       default: return "bg-muted text-muted-foreground";
     }
+  };
+
+  const parseSummary = (summaryJson: string | null): InterviewSummary | null => {
+    if (!summaryJson) return null;
+    try {
+      return JSON.parse(summaryJson);
+    } catch {
+      return null;
+    }
+  };
+
+  const getRecommendationIcon = (recommendation: string) => {
+    const lower = recommendation.toLowerCase();
+    if (lower.includes("hire") && !lower.includes("not")) {
+      return <CheckCircle className="w-5 h-5 text-accent" />;
+    } else if (lower.includes("pass") || lower.includes("not")) {
+      return <XCircle className="w-5 h-5 text-destructive" />;
+    }
+    return <HelpCircle className="w-5 h-5 text-warning" />;
   };
 
   const stats = {
@@ -193,6 +258,8 @@ const Dashboard = () => {
       </div>
     );
   }
+
+  const selectedSummary = selectedInterview ? parseSummary(selectedInterview.transcript_summary) : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -351,6 +418,16 @@ const Dashboard = () => {
                       {interview.status.replace("_", " ")}
                     </span>
                     <div className="flex items-center gap-1">
+                      {interview.status === "completed" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openSummary(interview)}
+                          title="View Summary"
+                        >
+                          <FileText className="w-4 h-4 text-primary" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -383,6 +460,180 @@ const Dashboard = () => {
           )}
         </div>
       </main>
+
+      {/* Summary Dialog */}
+      <Dialog open={summaryDialogOpen} onOpenChange={setSummaryDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Interview Summary
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedInterview && (
+            <div className="space-y-6 mt-4">
+              {/* Candidate Info */}
+              <div className="flex items-center gap-4 p-4 bg-secondary/50 rounded-xl">
+                <div className="w-12 h-12 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-lg">
+                  {(selectedInterview.candidate_name || selectedInterview.candidate_email)
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    {selectedInterview.candidate_name || selectedInterview.candidate_email}
+                  </div>
+                  <div className="text-sm text-muted-foreground">{selectedInterview.job_role}</div>
+                </div>
+                {selectedInterview.score && (
+                  <div className="ml-auto text-right">
+                    <div className="text-2xl font-bold text-primary">{selectedInterview.score}/10</div>
+                    <div className="text-xs text-muted-foreground">Overall Score</div>
+                  </div>
+                )}
+              </div>
+
+              {selectedSummary ? (
+                <>
+                  {/* AI Summary */}
+                  <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
+                    <h4 className="font-semibold text-foreground mb-2">AI Summary</h4>
+                    <p className="text-muted-foreground">{selectedSummary.summary}</p>
+                  </div>
+
+                  {/* Recommendation */}
+                  <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border">
+                    {getRecommendationIcon(selectedSummary.recommendation)}
+                    <div>
+                      <h4 className="font-semibold text-foreground">Recommendation</h4>
+                      <p className="text-muted-foreground">{selectedSummary.recommendation}</p>
+                    </div>
+                  </div>
+
+                  {/* Scores Grid */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { label: "Communication", score: selectedSummary.communicationScore },
+                      { label: "Technical", score: selectedSummary.technicalScore },
+                      { label: "Culture Fit", score: selectedSummary.cultureFitScore },
+                    ].map((item, index) => (
+                      <div key={index} className="p-4 bg-card rounded-xl border border-border text-center">
+                        <div className="text-2xl font-bold text-foreground">{item.score}/10</div>
+                        <div className="text-sm text-muted-foreground">{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Strengths & Improvements */}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-accent/5 rounded-xl border border-accent/20">
+                      <h4 className="font-semibold text-accent mb-3 flex items-center gap-2">
+                        <Star className="w-4 h-4" /> Strengths
+                      </h4>
+                      <ul className="space-y-2">
+                        {selectedSummary.strengths.map((s, i) => (
+                          <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                            <CheckCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="p-4 bg-destructive/5 rounded-xl border border-destructive/20">
+                      <h4 className="font-semibold text-destructive mb-3 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4" /> Areas for Improvement
+                      </h4>
+                      <ul className="space-y-2">
+                        {selectedSummary.areasForImprovement.map((a, i) => (
+                          <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                            <XCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                            {a}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Key Takeaways */}
+                  <div className="p-4 bg-card rounded-xl border border-border">
+                    <h4 className="font-semibold text-foreground mb-3">Key Takeaways</h4>
+                    <ul className="space-y-2">
+                      {selectedSummary.keyTakeaways.map((t, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                          <span className="text-primary">•</span> {t}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              ) : (
+                <div className="p-8 text-center text-muted-foreground">
+                  <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No AI summary available for this interview.</p>
+                </div>
+              )}
+
+              {/* Transcript */}
+              <div className="p-4 bg-card rounded-xl border border-border">
+                <h4 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" /> Full Transcript
+                </h4>
+                {transcriptMessages.length > 0 ? (
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                    {transcriptMessages.map((msg, index) => (
+                      <div
+                        key={index}
+                        className={`p-3 rounded-lg ${
+                          msg.role === "user"
+                            ? "bg-primary/10 ml-8"
+                            : "bg-secondary mr-8"
+                        }`}
+                      >
+                        <p className="text-xs text-muted-foreground mb-1">
+                          {msg.role === "user" ? "Candidate" : "AI Interviewer"}
+                        </p>
+                        <p className="text-sm text-foreground">{msg.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No transcript available.</p>
+                )}
+              </div>
+
+              {/* Documents */}
+              {(selectedInterview.candidate_resume_url || selectedInterview.candidate_notes) && (
+                <div className="p-4 bg-card rounded-xl border border-border">
+                  <h4 className="font-semibold text-foreground mb-3">Candidate Documents</h4>
+                  {selectedInterview.candidate_resume_url && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(selectedInterview.candidate_resume_url!, "_blank")}
+                      className="mr-2"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      View Resume
+                    </Button>
+                  )}
+                  {selectedInterview.candidate_notes && (
+                    <div className="mt-3">
+                      <p className="text-sm text-muted-foreground font-medium mb-1">Candidate Notes:</p>
+                      <p className="text-sm text-muted-foreground bg-secondary/50 p-3 rounded-lg">
+                        {selectedInterview.candidate_notes}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
