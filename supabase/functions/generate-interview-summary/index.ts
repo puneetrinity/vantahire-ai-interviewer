@@ -102,9 +102,21 @@ Respond ONLY with valid JSON, no additional text.`;
     }
 
     const aiResult = await response.json();
-    const summaryText = aiResult.choices[0].message.content;
+    let summaryText = aiResult.choices[0].message.content;
     
     console.log('AI Summary generated:', summaryText);
+
+    // Strip markdown code blocks if present
+    summaryText = summaryText.trim();
+    if (summaryText.startsWith('```json')) {
+      summaryText = summaryText.slice(7);
+    } else if (summaryText.startsWith('```')) {
+      summaryText = summaryText.slice(3);
+    }
+    if (summaryText.endsWith('```')) {
+      summaryText = summaryText.slice(0, -3);
+    }
+    summaryText = summaryText.trim();
 
     // Parse the JSON response
     let summary;
@@ -112,17 +124,8 @@ Respond ONLY with valid JSON, no additional text.`;
       summary = JSON.parse(summaryText);
     } catch (e) {
       console.error('Failed to parse AI response:', e);
-      summary = {
-        overallScore: 7,
-        summary: summaryText,
-        strengths: [],
-        areasForImprovement: [],
-        keyTakeaways: [],
-        recommendation: 'Review transcript manually',
-        communicationScore: 7,
-        technicalScore: 7,
-        cultureFitScore: 7
-      };
+      // Return error instead of fake scores
+      throw new Error('Failed to parse AI response - invalid JSON');
     }
 
     // Update interview with summary
