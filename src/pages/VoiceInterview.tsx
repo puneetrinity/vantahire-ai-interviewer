@@ -28,9 +28,7 @@ interface Interview {
   score: number | null;
 }
 
-// You need to create an ElevenLabs Agent in their dashboard and paste the ID here
-// Or we can make it configurable per interview
-const ELEVENLABS_AGENT_ID = ""; // User needs to set this
+const ELEVENLABS_AGENT_ID = "agent_3501kdkg4t5qfppvw6h1ve94teyq";
 
 const VoiceInterview = () => {
   const { id } = useParams<{ id: string }>();
@@ -410,25 +408,6 @@ const VoiceInterview = () => {
           </div>
         </div>
 
-        {/* Setup Instructions */}
-        {!ELEVENLABS_AGENT_ID && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8 p-6 rounded-2xl bg-primary/10 border border-primary/20"
-          >
-            <h3 className="text-lg font-semibold mb-2">⚠️ Setup Required</h3>
-            <p className="text-sm text-primary-foreground/80 mb-4">
-              To enable voice interviews, you need to create an ElevenLabs Conversational AI Agent:
-            </p>
-            <ol className="text-sm text-primary-foreground/80 space-y-2 list-decimal list-inside">
-              <li>Go to <a href="https://elevenlabs.io/conversational-ai" target="_blank" className="text-primary underline">ElevenLabs Conversational AI</a></li>
-              <li>Create a new Agent with your interview instructions</li>
-              <li>Copy the Agent ID</li>
-              <li>Update the ELEVENLABS_AGENT_ID in VoiceInterview.tsx</li>
-            </ol>
-          </motion.div>
-        )}
       </main>
     </div>
   );
