@@ -445,16 +445,24 @@ const Dashboard = () => {
                           >
                             <FileText className="w-4 h-4 text-primary" />
                           </Button>
-                          {interview.recording_url && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => window.open(interview.recording_url!, "_blank")}
-                              title="Watch Recording"
-                            >
-                              <Video className="w-4 h-4 text-accent" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              if (interview.recording_url) {
+                                window.open(interview.recording_url, "_blank");
+                              } else {
+                                toast({
+                                  title: "No Recording",
+                                  description: "This interview was completed before recording was available.",
+                                });
+                              }
+                            }}
+                            title={interview.recording_url ? "Watch Recording" : "No recording available"}
+                            className={!interview.recording_url ? "opacity-50" : ""}
+                          >
+                            <Video className={`w-4 h-4 ${interview.recording_url ? "text-accent" : "text-muted-foreground"}`} />
+                          </Button>
                         </>
                       )}
                       <Button
