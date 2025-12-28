@@ -22,7 +22,9 @@ import {
   Upload,
   FileText,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  Send,
+  MessageSquare
 } from "lucide-react";
 
 interface Interview {
@@ -56,10 +58,13 @@ const VoiceInterview = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [chatMessage, setChatMessage] = useState("");
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const contextSentRef = useRef(false);
 
@@ -388,6 +393,52 @@ const VoiceInterview = () => {
   const endInterview = useCallback(async () => {
     await conversation.endSession();
   }, [conversation]);
+
+  const sendChatMessage = useCallback(async () => {
+    if (!chatMessage.trim() || !conversation || conversation.status !== "connected") {
+      return;
+    }
+
+    const messageText = chatMessage.trim();
+    setChatMessage("");
+    setIsSendingMessage(true);
+
+    try {
+      // Add message to transcript immediately
+      setTranscript(prev => [...prev, { role: "user", text: messageText }]);
+      
+      // Save to database
+      await supabase.from("interview_messages").insert({
+        interview_id: id,
+        role: "user",
+        content: messageText,
+      });
+
+      // Send to ElevenLabs agent
+      conversation.sendUserMessage(messageText);
+      
+      // Scroll to bottom
+      setTimeout(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    } catch (error: any) {
+      console.error("Error sending message:", error);
+      toast({
+        variant: "destructive",
+        title: "Message Failed",
+        description: "Could not send message. Please try again.",
+      });
+    } finally {
+      setIsSendingMessage(false);
+    }
+  }, [chatMessage, conversation, id, toast]);
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  };
 
   const handleInterviewEnd = async () => {
     stopVideo();
@@ -737,9 +788,12 @@ const VoiceInterview = () => {
             </div>
 
             {/* Transcript Panel */}
-            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
-              <h3 className="text-lg font-semibold mb-4">Live Transcript</h3>
-              <div className="space-y-4 max-h-[500px] overflow-y-auto">
+            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6 flex flex-col">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Live Transcript
+              </h3>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto flex-1 mb-4">
                 {transcript.length === 0 ? (
                   <p className="text-sm text-primary-foreground/40 text-center py-8">
                     Transcript will appear here when the interview starts...
@@ -765,7 +819,39 @@ const VoiceInterview = () => {
                     ))}
                   </AnimatePresence>
                 )}
+                <div ref={transcriptEndRef} />
               </div>
+
+              {/* Chat Input */}
+              {isConnected && (
+                <div className="border-t border-primary-foreground/10 pt-4">
+                  <p className="text-xs text-primary-foreground/40 mb-2">
+                    Having audio issues? Type your response below:
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      onKeyDown={handleKeyPress}
+                      placeholder="Type your answer..."
+                      disabled={isSendingMessage}
+                      className="bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 flex-1"
+                    />
+                    <Button
+                      onClick={sendChatMessage}
+                      disabled={!chatMessage.trim() || isSendingMessage}
+                      size="icon"
+                      className="bg-primary hover:bg-primary/90"
+                    >
+                      {isSendingMessage ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
