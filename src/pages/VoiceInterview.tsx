@@ -883,25 +883,26 @@ const VoiceInterview = () => {
       console.error('Error updating interview status:', error);
     }
 
-    // Then try to generate AI summary
+    // Then try to generate AI summary with proper authorization
     try {
-      console.log("Generating interview summary for:", id);
+      // Get current session for authorization
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
-        body: { interviewId: id }
+        body: { interviewId: id },
+        headers: session ? {
+          Authorization: `Bearer ${session.access_token}`
+        } : undefined
       });
 
       if (error) {
-        console.error('Summary generation error:', error);
         toast({
           variant: "destructive",
           title: "Summary Generation Failed",
           description: "The interview was saved but we couldn't generate the AI summary. The recruiter will still see your responses.",
         });
-      } else {
-        console.log('Summary generated successfully:', data);
       }
     } catch (error) {
-      console.error('Failed to generate summary:', error);
       toast({
         variant: "destructive",
         title: "Summary Generation Failed",
