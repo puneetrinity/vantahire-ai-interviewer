@@ -250,6 +250,10 @@ export type Database = {
           time_limit_minutes: number
         }[]
       }
+      update_interview_recording: {
+        Args: { p_interview_id: string; p_recording_url: string }
+        Returns: undefined
+      }
       update_interview_status: {
         Args: { p_interview_id: string; p_score?: number; p_status: string }
         Returns: undefined
