@@ -145,37 +145,55 @@ const VoiceInterview = () => {
       }
     },
     onMessage: (message: any) => {
-      console.log("Message:", message);
+      console.log("ElevenLabs Message:", message.type, message);
+      
+      let role: string | null = null;
+      let content: string | null = null;
+      
+      // Handle different message formats from ElevenLabs
       if (message.message) {
-        const role = message.source === "user" ? "user" : "assistant";
-        const content = message.message;
-        
-        // Validate message content
-        const validation = validateMessageContent(content);
-        if (!validation.valid) {
-          console.error("Invalid message content:", validation.error);
-          return;
-        }
-        
-        setTranscript(prev => [...prev, { role, text: validation.sanitized! }]);
-        
-        // Track the promise so we can wait for all messages to be saved
-        const savePromise = new Promise<void>((resolve) => {
-          supabase.from("interview_messages").insert({
-            interview_id: id,
-            role,
-            content: validation.sanitized!,
-          }).then(({ error }) => {
-            if (error) {
-              console.error("Failed to save message:", error);
-            } else {
-              console.log("Message saved successfully:", role);
-            }
-            resolve();
-          });
-        });
-        pendingMessagesRef.current.push(savePromise);
+        // Standard message format
+        role = message.source === "user" ? "user" : "assistant";
+        content = message.message;
+      } else if (message.type === "agent_response" && message.agent_response_event?.agent_response) {
+        // Agent response event format
+        role = "assistant";
+        content = message.agent_response_event.agent_response;
+      } else if (message.type === "user_transcript" && message.user_transcription_event?.user_transcript) {
+        // User transcript from voice - already saved via sendChatMessage, skip to avoid duplicates
+        console.log("User transcript received (voice):", message.user_transcription_event.user_transcript);
+        return;
       }
+      
+      if (!role || !content) {
+        return;
+      }
+      
+      // Validate message content
+      const validation = validateMessageContent(content);
+      if (!validation.valid) {
+        console.error("Invalid message content:", validation.error);
+        return;
+      }
+      
+      setTranscript(prev => [...prev, { role, text: validation.sanitized! }]);
+      
+      // Track the promise so we can wait for all messages to be saved
+      const savePromise = new Promise<void>((resolve) => {
+        supabase.from("interview_messages").insert({
+          interview_id: id,
+          role,
+          content: validation.sanitized!,
+        }).then(({ error }) => {
+          if (error) {
+            console.error("Failed to save message:", error);
+          } else {
+            console.log("Message saved successfully:", role);
+          }
+          resolve();
+        });
+      });
+      pendingMessagesRef.current.push(savePromise);
     },
     onError: (error: any) => {
       console.error("Conversation error:", error);
