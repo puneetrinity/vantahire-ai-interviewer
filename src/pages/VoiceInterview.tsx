@@ -473,13 +473,18 @@ const VoiceInterview = () => {
             return;
           }
 
-          // Update interview with recording URL (store the path, not the signed URL)
-          await supabase
-            .from('interviews')
-            .update({ recording_url: fileName })
-            .eq('id', id);
+          // Update interview with recording URL using secure RPC function
+          const { error: updateError } = await supabase.rpc('update_interview_recording', {
+            p_interview_id: id,
+            p_recording_url: fileName
+          });
 
-          console.log("Recording uploaded:", fileName);
+          if (updateError) {
+            console.error("Failed to update recording URL:", updateError);
+          } else {
+            console.log("Recording uploaded and saved:", fileName);
+          }
+          
           resolve(fileName);
         } catch (error) {
           console.error("Error processing recording:", error);
