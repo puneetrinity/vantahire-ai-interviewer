@@ -255,7 +255,7 @@ const handler = async (req: Request): Promise<Response> => {
       body: JSON.stringify({
         sender: {
           name: companyName,
-          email: "noreply@interviewai.app", // Replace with your verified Brevo sender email
+          email: "hello@vantahire.com",
         },
         to: [
           {
