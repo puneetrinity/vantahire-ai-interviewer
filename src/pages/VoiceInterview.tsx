@@ -820,18 +820,25 @@ const VoiceInterview = () => {
 
     stopVideo();
 
-    // Always update the interview status to completed first
+    // Always update the interview status to completed first using security definer function
     try {
-      const { error: updateError } = await supabase
-        .from("interviews")
-        .update({ 
-          status: "completed",
-          completed_at: new Date().toISOString()
-        })
-        .eq("id", id);
+      const { error: updateError } = await supabase.rpc('update_interview_status', {
+        p_interview_id: id,
+        p_status: 'completed'
+      });
       
       if (updateError) {
         console.error('Failed to update interview status:', updateError);
+        // Fallback: try direct update (will work if RLS allows it)
+        await supabase
+          .from("interviews")
+          .update({ 
+            status: "completed",
+            completed_at: new Date().toISOString()
+          })
+          .eq("id", id);
+      } else {
+        console.log('Interview status updated to completed');
       }
     } catch (error) {
       console.error('Error updating interview status:', error);
