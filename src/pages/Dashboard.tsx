@@ -144,27 +144,37 @@ const Dashboard = () => {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
-  // Helper to refresh session before edge function calls
-  const refreshSessionIfNeeded = async (): Promise<boolean> => {
+  // Helper to get fresh access token for edge function calls
+  const getFreshAccessToken = async (): Promise<string | null> => {
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
+      // First try to get current session
+      let { data: { session }, error } = await supabase.auth.getSession();
+      
       if (error || !session) {
         // Session expired, try to refresh
-        const { error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError) {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshData.session) {
           toast({
             variant: "destructive",
             title: "Session Expired",
             description: "Please log in again to continue."
           });
           navigate("/auth");
-          return false;
+          return null;
         }
+        session = refreshData.session;
       }
-      return true;
+      
+      return session.access_token;
     } catch (e) {
-      console.error("Session refresh error:", e);
-      return false;
+      console.error("Session error:", e);
+      toast({
+        variant: "destructive",
+        title: "Authentication Error",
+        description: "Please log in again."
+      });
+      navigate("/auth");
+      return null;
     }
   };
 
@@ -252,8 +262,18 @@ const Dashboard = () => {
   const improveEmailWithAI = async () => {
     setImprovingEmail(true);
     
+    // Get fresh access token before calling edge function
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
+      setImprovingEmail(false);
+      return;
+    }
+    
     try {
       const { data, error } = await supabase.functions.invoke("improve-email-copy", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
         body: {
           currentIntro: profile.email_intro,
           currentTips: profile.email_tips,
@@ -425,9 +445,9 @@ const Dashboard = () => {
 
       if (error) throw error;
 
-      // Refresh session before calling edge function
-      const sessionValid = await refreshSessionIfNeeded();
-      if (!sessionValid) {
+      // Get fresh access token before calling edge function
+      const accessToken = await getFreshAccessToken();
+      if (!accessToken) {
         setCreating(false);
         return;
       }
@@ -437,6 +457,9 @@ const Dashboard = () => {
       
       try {
         const { data: emailData, error: emailError } = await supabase.functions.invoke("send-candidate-invite", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          },
           body: {
             candidateEmail: newInterview.candidateEmail,
             candidateName: newInterview.candidateName || null,
@@ -511,9 +534,9 @@ const Dashboard = () => {
   const resendInviteEmail = async (interview: Interview) => {
     setResendingEmail(interview.id);
     
-    // Refresh session before calling edge function
-    const sessionValid = await refreshSessionIfNeeded();
-    if (!sessionValid) {
+    // Get fresh access token before calling edge function
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
       setResendingEmail(null);
       return;
     }
@@ -522,6 +545,9 @@ const Dashboard = () => {
     
     try {
       const { error } = await supabase.functions.invoke("send-candidate-invite", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
         body: {
           candidateEmail: interview.candidate_email,
           candidateName: interview.candidate_name,
