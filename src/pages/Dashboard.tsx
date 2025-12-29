@@ -146,6 +146,32 @@ const Dashboard = () => {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
+  // Real-time subscription for interview updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('interviews-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'interviews'
+        },
+        (payload) => {
+          console.log('Interview updated:', payload);
+          // Refetch interviews when any change occurs
+          fetchInterviews();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   // Helper to get fresh access token for edge function calls
   const getFreshAccessToken = async (): Promise<string | null> => {
     try {
