@@ -30,7 +30,8 @@ import {
   CheckCircle,
   XCircle,
   HelpCircle,
-  Video
+  Video,
+  Mail
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -76,6 +77,7 @@ const Dashboard = () => {
     jobRole: ""
   });
   const [creating, setCreating] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -219,6 +221,39 @@ const Dashboard = () => {
       title: "Link Copied",
       description: "Interview link copied to clipboard"
     });
+  };
+
+  const resendInviteEmail = async (interview: Interview) => {
+    setResendingEmail(interview.id);
+    const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
+    
+    try {
+      const { error } = await supabase.functions.invoke("send-candidate-invite", {
+        body: {
+          candidateEmail: interview.candidate_email,
+          candidateName: interview.candidate_name,
+          jobRole: interview.job_role,
+          interviewId: interview.id,
+          interviewUrl
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Email Sent",
+        description: `Invitation resent to ${interview.candidate_email}`
+      });
+    } catch (error: any) {
+      console.error("Failed to resend invite:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to Send",
+        description: "Could not resend invitation email. Please try again."
+      });
+    } finally {
+      setResendingEmail(null);
+    }
   };
 
   const deleteInterview = async (id: string) => {
@@ -493,6 +528,17 @@ const Dashboard = () => {
                             <Video className={`w-4 h-4 ${interview.recording_url ? "text-accent" : "text-muted-foreground"}`} />
                           </Button>
                         </>
+                      )}
+                      {interview.status === "pending" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => resendInviteEmail(interview)}
+                          disabled={resendingEmail === interview.id}
+                          title="Resend invite email"
+                        >
+                          <Mail className={`w-4 h-4 ${resendingEmail === interview.id ? "animate-pulse" : ""}`} />
+                        </Button>
                       )}
                       <Button
                         variant="ghost"
