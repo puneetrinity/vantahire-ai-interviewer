@@ -634,19 +634,21 @@ const VoiceInterview = () => {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       await startVideo();
 
-      const now = new Date().toISOString();
-      await supabase
-        .from("interviews")
-        .update({ 
-          status: "in_progress",
-          started_at: now
-        })
-        .eq("id", id);
+      // Use RPC function to update status (handles started_at automatically)
+      const { error: statusError } = await supabase.rpc('update_interview_status', {
+        p_interview_id: id,
+        p_status: 'in_progress'
+      });
+
+      if (statusError) {
+        console.error("Failed to update interview status:", statusError);
+        throw new Error("Could not start interview. Please try again.");
+      }
 
       setInterview(prev => prev ? { 
         ...prev, 
         status: "in_progress",
-        started_at: now
+        started_at: new Date().toISOString()
       } : null);
 
       await conversation.startSession({
