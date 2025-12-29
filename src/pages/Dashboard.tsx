@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
+import EmailPreview from "@/components/EmailPreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,7 +36,8 @@ import {
   Settings,
   Palette,
   Upload,
-  X
+  X,
+  Eye
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -1046,24 +1048,12 @@ const Dashboard = () => {
               </p>
             </div>
             
-            {/* Preview */}
-            <div className="border border-border rounded-lg overflow-hidden">
-              <div 
-                className="p-4 text-center"
-                style={{ background: `linear-gradient(135deg, ${profile.brand_color}, ${adjustColor(profile.brand_color, 30)})` }}
-              >
-                {profile.logo_url && (
-                  <img 
-                    src={profile.logo_url} 
-                    alt="Logo preview" 
-                    className="max-h-8 mx-auto mb-2"
-                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                  />
-                )}
-                <div className="text-white font-bold">{profile.company_name || "Your Company"}</div>
-                <div className="text-white/80 text-xs">Email Header Preview</div>
-              </div>
-            </div>
+            {/* Full Email Preview */}
+            <EmailPreview 
+              companyName={profile.company_name || ""}
+              brandColor={profile.brand_color}
+              logoUrl={profile.logo_url}
+            />
             
             <Button onClick={saveProfile} variant="hero" className="w-full" disabled={savingProfile}>
               {savingProfile ? "Saving..." : "Save Settings"}
