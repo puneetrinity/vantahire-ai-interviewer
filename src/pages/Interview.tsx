@@ -136,13 +136,18 @@ const Interview = () => {
 
   const startInterview = async (interviewData: Interview) => {
     try {
-      // Update status to in_progress
-      await supabase
-        .from("interviews")
-        .update({ status: "in_progress" })
-        .eq("id", interviewData.id);
+      // Update status to in_progress using RPC function
+      const { error: statusError } = await supabase.rpc('update_interview_status', {
+        p_interview_id: interviewData.id,
+        p_status: 'in_progress'
+      });
 
-      setInterview({ ...interviewData, status: "in_progress" });
+      if (statusError) {
+        console.error("Failed to update interview status:", statusError);
+        throw new Error("Could not start interview. Please try again.");
+      }
+
+      setInterview({ ...interviewData, status: "in_progress", started_at: new Date().toISOString() });
 
       // Get first message from AI
       await sendMessage([], interviewData.job_role, true);
@@ -151,7 +156,7 @@ const Interview = () => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to start interview"
+        description: error.message || "Failed to start interview"
       });
     }
   };
@@ -331,14 +336,16 @@ const Interview = () => {
       if (data.evaluation) {
         setEvaluation(data.evaluation);
 
-        // Update interview status and score
-        await supabase
-          .from("interviews")
-          .update({
-            status: "completed",
-            score: data.evaluation.overallScore,
-          })
-          .eq("id", id);
+        // Update interview status and score using RPC function
+        const { error: updateError } = await supabase.rpc('update_interview_status', {
+          p_interview_id: id,
+          p_status: 'completed',
+          p_score: data.evaluation.overallScore
+        });
+
+        if (updateError) {
+          console.error("Failed to update interview status:", updateError);
+        }
 
         setInterview((prev) =>
           prev ? { ...prev, status: "completed", score: data.evaluation.overallScore } : null
