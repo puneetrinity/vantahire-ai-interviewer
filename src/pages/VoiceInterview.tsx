@@ -113,6 +113,12 @@ const VoiceInterview = () => {
     return context;
   }, [interview, candidateNotes]);
 
+  // Track pending message saves
+  const pendingMessagesRef = useRef<Promise<void>[]>([]);
+  
+  // Ref to hold handleInterviewEnd to avoid circular dependency
+  const handleInterviewEndRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to ElevenLabs agent");
@@ -130,9 +136,8 @@ const VoiceInterview = () => {
           title: "Connection Lost",
           description: "The connection to the AI interviewer was interrupted.",
         });
-      } else if (intentionalDisconnectRef.current) {
-        // Will be handled by endInterview flow
       }
+      // Note: Intentional disconnects are handled by endInterview which calls handleInterviewEnd
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
@@ -140,11 +145,22 @@ const VoiceInterview = () => {
         const role = message.source === "user" ? "user" : "assistant";
         setTranscript(prev => [...prev, { role, text: message.message }]);
         
-        supabase.from("interview_messages").insert({
-          interview_id: id,
-          role,
-          content: message.message,
+        // Track the promise so we can wait for all messages to be saved
+        const savePromise = new Promise<void>((resolve) => {
+          supabase.from("interview_messages").insert({
+            interview_id: id,
+            role,
+            content: message.message,
+          }).then(({ error }) => {
+            if (error) {
+              console.error("Failed to save message:", error);
+            } else {
+              console.log("Message saved successfully:", role);
+            }
+            resolve();
+          });
         });
+        pendingMessagesRef.current.push(savePromise);
       }
     },
     onError: (error: any) => {
@@ -589,11 +605,13 @@ const VoiceInterview = () => {
     intentionalDisconnectRef.current = true;
     setShowEndConfirmDialog(false);
     await conversation.endSession();
+    // Now handle the interview end (save recording, generate summary, etc.)
+    handleInterviewEndRef.current();
   }, [conversation]);
 
   const endInterviewFromDisconnect = useCallback(async () => {
     setShowDisconnectDialog(false);
-    handleInterviewEnd();
+    handleInterviewEndRef.current();
   }, []);
 
   const sendChatMessage = useCallback(async () => {
@@ -730,6 +748,17 @@ const VoiceInterview = () => {
 
     setIsGeneratingSummary(true);
 
+    // Wait for all pending messages to be saved before generating summary
+    console.log("Waiting for", pendingMessagesRef.current.length, "pending messages to save...");
+    try {
+      await Promise.all(pendingMessagesRef.current);
+      console.log("All messages saved successfully");
+    } catch (error) {
+      console.error("Error saving some messages:", error);
+    }
+    // Clear the pending messages array
+    pendingMessagesRef.current = [];
+
     // Stop recording and upload
     const recordingUrl = await stopRecording();
     if (recordingUrl) {
@@ -758,8 +787,9 @@ const VoiceInterview = () => {
       console.error('Error updating interview status:', error);
     }
 
-    // Then try to generate AI summary (non-blocking)
+    // Then try to generate AI summary
     try {
+      console.log("Generating interview summary...");
       const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
         body: { interviewId: id }
       });
@@ -783,6 +813,11 @@ const VoiceInterview = () => {
       description: "Thank you for completing the interview! The recruiter will review your responses.",
     });
   }, [id, stopRecording, toast]);
+
+  // Update ref whenever handleInterviewEnd changes
+  useEffect(() => {
+    handleInterviewEndRef.current = handleInterviewEnd;
+  }, [handleInterviewEnd]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
