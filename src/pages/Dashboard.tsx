@@ -37,7 +37,9 @@ import {
   Palette,
   Upload,
   X,
-  Eye
+  Eye,
+  Sparkles,
+  Wand2
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -73,6 +75,9 @@ interface RecruiterProfile {
   company_name: string | null;
   brand_color: string;
   logo_url: string | null;
+  email_intro: string | null;
+  email_tips: string | null;
+  email_cta_text: string | null;
 }
 
 // Helper function to adjust color brightness
@@ -104,10 +109,14 @@ const Dashboard = () => {
   const [profile, setProfile] = useState<RecruiterProfile>({
     company_name: null,
     brand_color: '#6366f1',
-    logo_url: null
+    logo_url: null,
+    email_intro: null,
+    email_tips: null,
+    email_cta_text: null
   });
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [improvingEmail, setImprovingEmail] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -160,7 +169,7 @@ const Dashboard = () => {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("company_name, brand_color, logo_url")
+        .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text")
         .eq("id", userId)
         .maybeSingle();
 
@@ -169,7 +178,10 @@ const Dashboard = () => {
         setProfile({
           company_name: data.company_name,
           brand_color: data.brand_color || '#6366f1',
-          logo_url: data.logo_url
+          logo_url: data.logo_url,
+          email_intro: data.email_intro,
+          email_tips: data.email_tips,
+          email_cta_text: data.email_cta_text
         });
       }
     } catch (error: any) {
@@ -187,7 +199,10 @@ const Dashboard = () => {
         .update({
           company_name: profile.company_name,
           brand_color: profile.brand_color,
-          logo_url: profile.logo_url
+          logo_url: profile.logo_url,
+          email_intro: profile.email_intro,
+          email_tips: profile.email_tips,
+          email_cta_text: profile.email_cta_text
         })
         .eq("id", user.id);
 
@@ -207,6 +222,46 @@ const Dashboard = () => {
       });
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const improveEmailWithAI = async () => {
+    setImprovingEmail(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("improve-email-copy", {
+        body: {
+          currentIntro: profile.email_intro,
+          currentTips: profile.email_tips,
+          currentCta: profile.email_cta_text,
+          companyName: profile.company_name,
+          tone: "professional"
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.improved) {
+        setProfile({
+          ...profile,
+          email_intro: data.improved.intro || profile.email_intro,
+          email_tips: data.improved.tips || profile.email_tips,
+          email_cta_text: data.improved.cta || profile.email_cta_text
+        });
+        toast({
+          title: "Email Copy Improved",
+          description: "AI has enhanced your email content."
+        });
+      }
+    } catch (error: any) {
+      console.error("Error improving email:", error);
+      toast({
+        variant: "destructive",
+        title: "AI Enhancement Failed",
+        description: error.message || "Could not improve email copy. Please try again."
+      });
+    } finally {
+      setImprovingEmail(false);
     }
   };
 
@@ -1048,11 +1103,86 @@ const Dashboard = () => {
               </p>
             </div>
             
+            {/* Email Copy Customization */}
+            <div className="space-y-4 border-t border-border pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4" />
+                  <Label className="text-base font-medium">Email Copy</Label>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={improveEmailWithAI}
+                  disabled={improvingEmail}
+                  className="gap-2"
+                >
+                  {improvingEmail ? (
+                    <>
+                      <Sparkles className="w-4 h-4 animate-pulse" />
+                      Improving...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-4 h-4" />
+                      Improve with AI
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="emailIntro">Introduction Text</Label>
+                <textarea
+                  id="emailIntro"
+                  placeholder="You've been invited to complete an AI-powered interview for the [Job Role] position."
+                  value={profile.email_intro || ""}
+                  onChange={(e) => setProfile({...profile, email_intro: e.target.value || null})}
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Appears after the greeting. Leave empty for default text.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="emailTips">Tips for Success</Label>
+                <textarea
+                  id="emailTips"
+                  placeholder="Find a quiet place with a stable internet connection. Speak clearly and take your time with each response."
+                  value={profile.email_tips || ""}
+                  onChange={(e) => setProfile({...profile, email_tips: e.target.value || null})}
+                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Helpful advice shown before the call-to-action button.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="emailCta">Button Text</Label>
+                <Input
+                  id="emailCta"
+                  type="text"
+                  placeholder="Start Your Interview"
+                  value={profile.email_cta_text || ""}
+                  onChange={(e) => setProfile({...profile, email_cta_text: e.target.value || null})}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Text displayed on the main action button.
+                </p>
+              </div>
+            </div>
+            
             {/* Full Email Preview */}
             <EmailPreview 
               companyName={profile.company_name || ""}
               brandColor={profile.brand_color}
               logoUrl={profile.logo_url}
+              emailIntro={profile.email_intro || undefined}
+              emailTips={profile.email_tips || undefined}
+              emailCta={profile.email_cta_text || undefined}
             />
             
             <Button onClick={saveProfile} variant="hero" className="w-full" disabled={savingProfile}>

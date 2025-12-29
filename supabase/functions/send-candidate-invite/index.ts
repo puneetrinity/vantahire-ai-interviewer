@@ -22,6 +22,9 @@ interface RecruiterBranding {
   company_name: string | null;
   brand_color: string | null;
   logo_url: string | null;
+  email_intro: string | null;
+  email_tips: string | null;
+  email_cta_text: string | null;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -39,7 +42,10 @@ const handler = async (req: Request): Promise<Response> => {
     let branding: RecruiterBranding = {
       company_name: null,
       brand_color: '#6366f1',
-      logo_url: null
+      logo_url: null,
+      email_intro: null,
+      email_tips: null,
+      email_cta_text: null
     };
 
     if (recruiterId) {
@@ -49,7 +55,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('company_name, brand_color, logo_url')
+        .select('company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text')
         .eq('id', recruiterId)
         .single();
 
@@ -57,7 +63,10 @@ const handler = async (req: Request): Promise<Response> => {
         branding = {
           company_name: profile.company_name,
           brand_color: profile.brand_color || '#6366f1',
-          logo_url: profile.logo_url
+          logo_url: profile.logo_url,
+          email_intro: profile.email_intro,
+          email_tips: profile.email_tips,
+          email_cta_text: profile.email_cta_text
         };
       }
     }
@@ -66,6 +75,11 @@ const handler = async (req: Request): Promise<Response> => {
     const companyName = branding.company_name || "InterviewAI";
     const brandColor = branding.brand_color || '#6366f1';
     const brandColorLight = brandColor + '33'; // Add transparency for light version
+    
+    // Custom email copy with fallbacks
+    const introText = branding.email_intro || `You've been invited to complete an AI-powered interview for the <strong style="color: #18181b;">${jobRole}</strong> position${branding.company_name ? ` at <strong style="color: #18181b;">${branding.company_name}</strong>` : ''}.`;
+    const tipsText = branding.email_tips || "Find a quiet place with a stable internet connection. Speak clearly and take your time with each response.";
+    const ctaText = branding.email_cta_text || "Start Your Interview";
     
     // Generate gradient colors based on brand color
     const gradientEnd = adjustColor(brandColor, 20);
@@ -107,7 +121,7 @@ const handler = async (req: Request): Promise<Response> => {
                       <h2 style="color: #18181b; margin: 0 0 16px 0; font-size: 24px;">Hello ${displayName}!</h2>
                       
                       <p style="color: #52525b; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-                        You've been invited to complete an AI-powered interview for the <strong style="color: #18181b;">${jobRole}</strong> position${branding.company_name ? ` at <strong style="color: #18181b;">${branding.company_name}</strong>` : ''}.
+                        ${introText}
                       </p>
                       
                       <div style="background-color: #f4f4f5; border-radius: 8px; padding: 20px; margin: 0 0 24px 0;">
@@ -121,7 +135,7 @@ const handler = async (req: Request): Promise<Response> => {
                       </div>
                       
                       <p style="color: #52525b; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">
-                        <strong>Tips for success:</strong> Find a quiet place with a stable internet connection. Speak clearly and take your time with each response.
+                        <strong>Tips for success:</strong> ${tipsText}
                       </p>
                       
                       <!-- CTA Button -->
@@ -129,7 +143,7 @@ const handler = async (req: Request): Promise<Response> => {
                         <tr>
                           <td align="center" style="padding: 8px 0 24px 0;">
                             <a href="${interviewUrl}" style="display: inline-block; background: linear-gradient(135deg, ${brandColor} 0%, ${gradientEnd} 100%); color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 14px ${brandColor}66;">
-                              Start Your Interview
+                              ${ctaText}
                             </a>
                           </td>
                         </tr>

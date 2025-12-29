@@ -4,6 +4,9 @@ interface EmailPreviewProps {
   companyName: string;
   brandColor: string;
   logoUrl: string | null;
+  emailIntro?: string;
+  emailTips?: string;
+  emailCta?: string;
 }
 
 // Helper function to adjust color brightness
@@ -16,9 +19,20 @@ const adjustColor = (color: string, amount: number): string => {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
-const EmailPreview = ({ companyName, brandColor, logoUrl }: EmailPreviewProps) => {
+const EmailPreview = ({ 
+  companyName, 
+  brandColor, 
+  logoUrl,
+  emailIntro,
+  emailTips,
+  emailCta 
+}: EmailPreviewProps) => {
   const displayName = companyName || "Your Company";
   const gradientEnd = adjustColor(brandColor, 20);
+  
+  const introText = emailIntro || `You've been invited to complete an AI-powered interview for the Software Engineer position at ${displayName}.`;
+  const tipsText = emailTips || "Find a quiet place with a stable internet connection. Speak clearly and take your time.";
+  const ctaText = emailCta || "Start Your Interview";
   
   return (
     <div className="space-y-2">
@@ -52,7 +66,7 @@ const EmailPreview = ({ companyName, brandColor, logoUrl }: EmailPreviewProps) =
               <h2 className="text-[#18181b] text-lg font-semibold mb-3">Hello John!</h2>
               
               <p className="text-[#52525b] text-sm leading-relaxed mb-4">
-                You've been invited to complete an AI-powered interview for the <strong className="text-[#18181b]">Software Engineer</strong> position at <strong className="text-[#18181b]">{displayName}</strong>.
+                {introText}
               </p>
               
               <div className="bg-[#f4f4f5] rounded-lg p-4 mb-4">
@@ -66,7 +80,7 @@ const EmailPreview = ({ companyName, brandColor, logoUrl }: EmailPreviewProps) =
               </div>
               
               <p className="text-[#52525b] text-xs mb-4">
-                <strong>Tips for success:</strong> Find a quiet place with a stable internet connection. Speak clearly and take your time.
+                <strong>Tips for success:</strong> {tipsText}
               </p>
               
               {/* CTA Button */}
@@ -78,7 +92,7 @@ const EmailPreview = ({ companyName, brandColor, logoUrl }: EmailPreviewProps) =
                     boxShadow: `0 4px 14px ${brandColor}66`
                   }}
                 >
-                  Start Your Interview
+                  {ctaText}
                 </button>
               </div>
               

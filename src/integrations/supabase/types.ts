@@ -141,6 +141,9 @@ export type Database = {
           company_name: string | null
           created_at: string
           email: string | null
+          email_cta_text: string | null
+          email_intro: string | null
+          email_tips: string | null
           full_name: string | null
           id: string
           logo_url: string | null
@@ -151,6 +154,9 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           email?: string | null
+          email_cta_text?: string | null
+          email_intro?: string | null
+          email_tips?: string | null
           full_name?: string | null
           id: string
           logo_url?: string | null
@@ -161,6 +167,9 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           email?: string | null
+          email_cta_text?: string | null
+          email_intro?: string | null
+          email_tips?: string | null
           full_name?: string | null
           id?: string
           logo_url?: string | null
