@@ -10,7 +10,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.send-candidate-invite]
-verify_jwt = true
+verify_jwt = false
 
 [functions.improve-email-copy]
 verify_jwt = true

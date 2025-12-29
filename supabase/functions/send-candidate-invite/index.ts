@@ -2,6 +2,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+const supabaseAuth = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!);
+const supabaseAdmin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,41 +40,117 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { candidateEmail, candidateName, jobRole, interviewId, interviewUrl, recruiterId }: InviteEmailRequest = await req.json();
+    if (!RESEND_API_KEY) {
+      throw new Error("Missing RESEND_API_KEY secret");
+    }
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("Missing backend environment configuration");
+    }
 
-    console.log(`Sending interview invite to ${candidateEmail} for ${jobRole} position`);
+    // Manual auth check (function is public; we validate JWT ourselves)
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+    const token = authHeader?.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
 
-    // Fetch recruiter branding if recruiterId is provided
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+    const recruiterUser = userData?.user;
+    const recruiterUserId = recruiterUser?.id;
+
+    if (userError || !recruiterUserId) {
+      console.warn("Invalid token for send-candidate-invite:", userError?.message);
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    // Block anonymous candidate sessions from sending invites
+    if ((recruiterUser as any)?.is_anonymous) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    const {
+      candidateEmail,
+      candidateName,
+      jobRole,
+      interviewId,
+      interviewUrl,
+      recruiterId,
+    }: InviteEmailRequest = await req.json();
+
+    if (!candidateEmail || !candidateEmail.includes("@")) {
+      return new Response(JSON.stringify({ error: "Invalid candidateEmail" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+    if (!jobRole || jobRole.length > 200) {
+      return new Response(JSON.stringify({ error: "Invalid jobRole" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+    if (!interviewId) {
+      return new Response(JSON.stringify({ error: "Missing interviewId" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+    if (!interviewUrl || !interviewUrl.startsWith("http")) {
+      return new Response(JSON.stringify({ error: "Invalid interviewUrl" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    // If recruiterId is passed, ensure it matches the authenticated user
+    if (recruiterId && recruiterId !== recruiterUserId) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    console.log(
+      `Sending interview invite recruiter=${recruiterUserId} candidate=${candidateEmail} role=${jobRole}`,
+    );
+
+    // Fetch recruiter branding
     let branding: RecruiterBranding = {
       company_name: null,
-      brand_color: '#6366f1',
+      brand_color: "#6366f1",
       logo_url: null,
       email_intro: null,
       email_tips: null,
-      email_cta_text: null
+      email_cta_text: null,
     };
 
-    if (recruiterId) {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text")
+      .eq("id", recruiterUserId)
+      .maybeSingle();
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text')
-        .eq('id', recruiterId)
-        .single();
-
-      if (profile) {
-        branding = {
-          company_name: profile.company_name,
-          brand_color: profile.brand_color || '#6366f1',
-          logo_url: profile.logo_url,
-          email_intro: profile.email_intro,
-          email_tips: profile.email_tips,
-          email_cta_text: profile.email_cta_text
-        };
-      }
+    if (profile) {
+      branding = {
+        company_name: profile.company_name,
+        brand_color: profile.brand_color || "#6366f1",
+        logo_url: profile.logo_url,
+        email_intro: profile.email_intro,
+        email_tips: profile.email_tips,
+        email_cta_text: profile.email_cta_text,
+      };
     }
 
     const displayName = candidateName || "Candidate";
