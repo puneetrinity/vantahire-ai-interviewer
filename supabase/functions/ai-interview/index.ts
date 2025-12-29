@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,7 +12,90 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, jobRole, action } = await req.json();
+    // Get and validate authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('Missing authorization header');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Missing authorization' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create Supabase client with user's auth context
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    // Verify user is authenticated
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    if (authError || !user) {
+      console.error('Auth error:', authError?.message || 'No user found');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Invalid credentials' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Authenticated user:', user.id, 'is_anonymous:', user.is_anonymous);
+
+    const { messages, jobRole, action, interviewId } = await req.json();
+
+    // Validate required fields
+    if (!messages || !Array.isArray(messages)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid request - messages array required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!jobRole || typeof jobRole !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Invalid request - jobRole required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // If interviewId is provided, verify user has access to this interview
+    if (interviewId) {
+      // Check if user is recruiter
+      const { data: recruiterInterview } = await supabaseClient
+        .from('interviews')
+        .select('id')
+        .eq('id', interviewId)
+        .eq('recruiter_id', user.id)
+        .maybeSingle();
+
+      // Check if user is candidate (anon user linked to interview)
+      const { data: candidateLink } = await supabaseClient
+        .from('candidate_interviews')
+        .select('id')
+        .eq('interview_id', interviewId)
+        .eq('anon_user_id', user.id)
+        .maybeSingle();
+
+      if (!recruiterInterview && !candidateLink) {
+        console.error('User', user.id, 'has no access to interview', interviewId);
+        return new Response(
+          JSON.stringify({ error: 'Forbidden - No access to this interview' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      console.log('User authorized for interview:', interviewId);
+    }
+
+    // Input validation for messages
+    for (const msg of messages) {
+      if (typeof msg.content === 'string' && msg.content.length > 10000) {
+        return new Response(
+          JSON.stringify({ error: 'Message content too long (max 10000 characters)' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     
     if (!LOVABLE_API_KEY) {

@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useCandidateAuth } from "@/hooks/useCandidateAuth";
+import { validateMessageContent } from "@/lib/validateInput";
 import { Zap, Send, Bot, User, Loader2, CheckCircle, XCircle } from "lucide-react";
 
 interface Message {
@@ -32,6 +34,10 @@ interface Evaluation {
 
 const Interview = () => {
   const { id } = useParams<{ id: string }>();
+  
+  // Use anonymous auth for candidates
+  const { user, isLoading: authLoading, isLinkedToInterview, error: authError } = useCandidateAuth(id);
+  
   const [interview, setInterview] = useState<Interview | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -43,11 +49,26 @@ const Interview = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
+  // Wait for auth before fetching interview
   useEffect(() => {
-    if (id) {
+    if (authLoading) return;
+    
+    if (authError) {
+      setError(authError);
+      setLoading(false);
+      return;
+    }
+    
+    if (!isLinkedToInterview) {
+      setError("Unable to access this interview. Please check the link and try again.");
+      setLoading(false);
+      return;
+    }
+    
+    if (id && user) {
       fetchInterview();
     }
-  }, [id]);
+  }, [id, authLoading, authError, isLinkedToInterview, user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -142,17 +163,25 @@ const Interview = () => {
     setIsStreaming(true);
 
     try {
+      // Get the current session for auth
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error("Authentication required");
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-interview`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            "Authorization": `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
             messages: currentMessages,
             jobRole: jobRole,
+            interviewId: id,
           }),
         }
       );
@@ -204,13 +233,16 @@ const Interview = () => {
         }
       }
 
-      // Save message to database
+      // Validate and save message to database
       if (assistantMessage) {
-        await supabase.from("interview_messages").insert({
-          interview_id: id,
-          role: "assistant",
-          content: assistantMessage,
-        });
+        const validation = validateMessageContent(assistantMessage);
+        if (validation.valid) {
+          await supabase.from("interview_messages").insert({
+            interview_id: id,
+            role: "assistant",
+            content: validation.sanitized!,
+          });
+        }
       }
     } catch (error: any) {
       console.error("Error sending message:", error);
@@ -227,7 +259,18 @@ const Interview = () => {
   const handleSend = async () => {
     if (!input.trim() || sending || isStreaming || !interview) return;
 
-    const userMessage = input.trim();
+    // Validate input
+    const validation = validateMessageContent(input);
+    if (!validation.valid) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Message",
+        description: validation.error,
+      });
+      return;
+    }
+
+    const userMessage = validation.sanitized!;
     setInput("");
     setSending(true);
 
@@ -257,6 +300,13 @@ const Interview = () => {
     setIsStreaming(true);
 
     try {
+      // Get the current session for auth
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error("Authentication required");
+      }
+
       // Get evaluation
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-interview`,
@@ -264,12 +314,13 @@ const Interview = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            "Authorization": `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
             messages: finalMessages,
             jobRole: interview?.job_role,
             action: "evaluate",
+            interviewId: id,
           }),
         }
       );
@@ -306,7 +357,8 @@ const Interview = () => {
     }
   };
 
-  if (loading) {
+  // Show loading while auth is in progress
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -317,12 +369,12 @@ const Interview = () => {
     );
   }
 
-  if (error || !interview) {
+  if (error || authError || !interview) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <XCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">{error || "Interview not found"}</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{error || authError || "Interview not found"}</h2>
           <p className="text-muted-foreground">Please check the link and try again.</p>
         </div>
       </div>
@@ -468,6 +520,7 @@ const Interview = () => {
               placeholder="Type your response..."
               className="min-h-[60px] max-h-[120px] resize-none"
               disabled={isStreaming || sending}
+              maxLength={10000}
             />
             <Button
               variant="hero"

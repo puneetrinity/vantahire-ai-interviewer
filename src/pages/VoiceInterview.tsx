@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useCandidateAuth } from "@/hooks/useCandidateAuth";
+import { validateMessageContent, validateNotes } from "@/lib/validateInput";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +61,10 @@ const DEFAULT_TIME_LIMIT = 30; // 30 minutes
 const VoiceInterview = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  
+  // Use anonymous auth for candidates
+  const { user, isLoading: authLoading, isLinkedToInterview, error: authError } = useCandidateAuth(id);
+  
   const [interview, setInterview] = useState<Interview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,20 +143,28 @@ const VoiceInterview = () => {
           description: "The connection to the AI interviewer was interrupted.",
         });
       }
-      // Note: Intentional disconnects are handled by endInterview which calls handleInterviewEnd
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
       if (message.message) {
         const role = message.source === "user" ? "user" : "assistant";
-        setTranscript(prev => [...prev, { role, text: message.message }]);
+        const content = message.message;
+        
+        // Validate message content
+        const validation = validateMessageContent(content);
+        if (!validation.valid) {
+          console.error("Invalid message content:", validation.error);
+          return;
+        }
+        
+        setTranscript(prev => [...prev, { role, text: validation.sanitized! }]);
         
         // Track the promise so we can wait for all messages to be saved
         const savePromise = new Promise<void>((resolve) => {
           supabase.from("interview_messages").insert({
             interview_id: id,
             role,
-            content: message.message,
+            content: validation.sanitized!,
           }).then(({ error }) => {
             if (error) {
               console.error("Failed to save message:", error);
@@ -226,10 +240,26 @@ const VoiceInterview = () => {
     }
   }, [reconnectAttempts, conversation, buildInterviewContext, toast]);
 
+  // Wait for auth before fetching interview
   useEffect(() => {
-    if (id) {
+    if (authLoading) return;
+    
+    if (authError) {
+      setError(authError);
+      setLoading(false);
+      return;
+    }
+    
+    if (!isLinkedToInterview) {
+      setError("Unable to access this interview. Please check the link and try again.");
+      setLoading(false);
+      return;
+    }
+    
+    if (id && user) {
       fetchInterview();
     }
+    
     return () => {
       stopVideo();
       conversation.endSession();
@@ -237,7 +267,7 @@ const VoiceInterview = () => {
         clearInterval(timerRef.current);
       }
     };
-  }, [id]);
+  }, [id, authLoading, authError, isLinkedToInterview, user]);
 
   // Timer effect
   useEffect(() => {
@@ -395,18 +425,25 @@ const VoiceInterview = () => {
             return;
           }
 
-          const { data: { publicUrl } } = supabase.storage
+          // Get signed URL instead of public URL (bucket is now private)
+          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
             .from('interview-documents')
-            .getPublicUrl(fileName);
+            .createSignedUrl(fileName, 60 * 60 * 24 * 7); // 7 days expiration
 
-          // Update interview with recording URL
+          if (signedUrlError || !signedUrlData) {
+            console.error("Failed to get signed URL:", signedUrlError);
+            resolve(null);
+            return;
+          }
+
+          // Update interview with recording URL (store the path, not the signed URL)
           await supabase
             .from('interviews')
-            .update({ recording_url: publicUrl })
+            .update({ recording_url: fileName })
             .eq('id', id);
 
-          console.log("Recording uploaded:", publicUrl);
-          resolve(publicUrl);
+          console.log("Recording uploaded:", fileName);
+          resolve(fileName);
         } catch (error) {
           console.error("Error processing recording:", error);
           resolve(null);
@@ -481,13 +518,10 @@ const VoiceInterview = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('interview-documents')
-        .getPublicUrl(filePath);
-
+      // Store the file path instead of public URL
       await supabase
         .from('interviews')
-        .update({ candidate_resume_url: publicUrl })
+        .update({ candidate_resume_url: filePath })
         .eq('id', id);
 
       toast({
@@ -508,12 +542,23 @@ const VoiceInterview = () => {
   };
 
   const saveNotes = async () => {
-    if (!candidateNotes.trim()) return;
+    // Validate notes
+    const validation = validateNotes(candidateNotes);
+    if (!validation.valid) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Notes",
+        description: validation.error,
+      });
+      return;
+    }
+
+    if (!validation.sanitized?.trim()) return;
 
     try {
       await supabase
         .from('interviews')
-        .update({ candidate_notes: candidateNotes })
+        .update({ candidate_notes: validation.sanitized })
         .eq('id', id);
 
       toast({
@@ -619,7 +664,18 @@ const VoiceInterview = () => {
       return;
     }
 
-    const messageText = chatMessage.trim();
+    // Validate message content
+    const validation = validateMessageContent(chatMessage);
+    if (!validation.valid) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Message",
+        description: validation.error,
+      });
+      return;
+    }
+
+    const messageText = validation.sanitized!;
     setChatMessage("");
     setIsSendingMessage(true);
 
@@ -701,10 +757,6 @@ const VoiceInterview = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('interview-documents')
-        .getPublicUrl(filePath);
-
       setChatUploadedFile(file.name);
 
       // Send a message to the AI about the uploaded file
@@ -760,8 +812,8 @@ const VoiceInterview = () => {
     pendingMessagesRef.current = [];
 
     // Stop recording and upload
-    const recordingUrl = await stopRecording();
-    if (recordingUrl) {
+    const recordingPath = await stopRecording();
+    if (recordingPath) {
       toast({
         title: "Recording Saved",
         description: "Your interview recording has been saved.",
@@ -827,7 +879,8 @@ const VoiceInterview = () => {
 
   const isTimeWarning = timeRemaining !== null && timeRemaining <= 300; // 5 minutes warning
 
-  if (loading) {
+  // Show loading while auth is in progress
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -838,12 +891,12 @@ const VoiceInterview = () => {
     );
   }
 
-  if (error || !interview) {
+  if (error || authError || !interview) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <XCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">{error || "Interview not found"}</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{error || authError || "Interview not found"}</h2>
           <p className="text-muted-foreground">Please check the link and try again.</p>
         </div>
       </div>
@@ -926,14 +979,18 @@ const VoiceInterview = () => {
             <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
               <h3 className="text-lg font-semibold mb-4">Additional Notes</h3>
               <p className="text-sm text-primary-foreground/60 mb-4">
-                Paste any additional information you'd like the interviewer to consider
+                Paste any additional information you'd like the interviewer to consider (max 5000 characters)
               </p>
               <Textarea
                 value={candidateNotes}
                 onChange={(e) => setCandidateNotes(e.target.value)}
                 placeholder="Paste your resume text, job description, or any notes here..."
                 className="min-h-[150px] bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40"
+                maxLength={5000}
               />
+              <p className="text-xs text-primary-foreground/40 mt-2">
+                {candidateNotes.length}/5000 characters
+              </p>
             </div>
 
             {/* Start Button */}
@@ -1192,6 +1249,7 @@ const VoiceInterview = () => {
                       placeholder="Type your answer..."
                       disabled={isSendingMessage}
                       className="bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 flex-1"
+                      maxLength={10000}
                     />
                     <Button
                       onClick={sendChatMessage}

@@ -14,6 +14,35 @@ export type Database = {
   }
   public: {
     Tables: {
+      candidate_interviews: {
+        Row: {
+          anon_user_id: string
+          created_at: string
+          id: string
+          interview_id: string
+        }
+        Insert: {
+          anon_user_id: string
+          created_at?: string
+          id?: string
+          interview_id: string
+        }
+        Update: {
+          anon_user_id?: string
+          created_at?: string
+          id?: string
+          interview_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_interviews_interview_id_fkey"
+            columns: ["interview_id"]
+            isOneToOne: false
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       interview_messages: {
         Row: {
           content: string

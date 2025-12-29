@@ -1,1 +1,10 @@
 project_id = "cknjyiukluuzaittclmr"
+
+[functions.ai-interview]
+verify_jwt = true
+
+[functions.generate-interview-summary]
+verify_jwt = true
+
+[functions.elevenlabs-conversation-token]
+verify_jwt = false
