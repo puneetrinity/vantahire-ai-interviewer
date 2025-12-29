@@ -44,13 +44,13 @@ import {
 
 interface Interview {
   id: string;
-  candidate_email: string;
-  candidate_name: string | null;
   job_role: string;
   status: string;
   score: number | null;
   time_limit_minutes: number | null;
   started_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
   candidate_resume_url: string | null;
   candidate_notes: string | null;
 }
@@ -104,7 +104,6 @@ const VoiceInterview = () => {
     
     let context = `INTERVIEW CONTEXT:\n`;
     context += `- Job Role: ${interview.job_role}\n`;
-    context += `- Candidate Name: ${interview.candidate_name || 'Not provided'}\n`;
     
     if (candidateNotes.trim()) {
       context += `\nCANDIDATE PROVIDED INFORMATION:\n${candidateNotes}\n`;
@@ -303,23 +302,22 @@ const VoiceInterview = () => {
 
   const fetchInterview = async () => {
     try {
+      // Use secure function that only returns safe columns for candidates
       const { data, error } = await supabase
-        .from("interviews")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
+        .rpc("get_candidate_interview_safe", { p_interview_id: id });
 
       if (error) throw error;
-      if (!data) {
+      if (!data || data.length === 0) {
         setError("Interview not found");
         return;
       }
 
-      setInterview(data as Interview);
-      if (data.candidate_notes) {
-        setCandidateNotes(data.candidate_notes);
+      const interviewData = data[0] as Interview;
+      setInterview(interviewData);
+      if (interviewData.candidate_notes) {
+        setCandidateNotes(interviewData.candidate_notes);
       }
-      if (data.status === "in_progress" || data.status === "completed") {
+      if (interviewData.status === "in_progress" || interviewData.status === "completed") {
         setShowPreInterview(false);
       }
     } catch (error: any) {
@@ -1120,7 +1118,7 @@ const VoiceInterview = () => {
 
                 <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-foreground/80 backdrop-blur-sm">
                   <span className="text-sm font-medium">
-                    {interview.candidate_name || "Candidate"}
+                    Candidate
                   </span>
                 </div>
 

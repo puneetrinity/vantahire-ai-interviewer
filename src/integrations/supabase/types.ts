@@ -167,6 +167,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_candidate_interview_safe: {
+        Args: { p_interview_id: string }
+        Returns: {
+          candidate_notes: string
+          candidate_resume_url: string
+          completed_at: string
+          expires_at: string
+          id: string
+          job_role: string
+          score: number
+          started_at: string
+          status: string
+          time_limit_minutes: number
+        }[]
+      }
       update_interview_status: {
         Args: { p_interview_id: string; p_score?: number; p_status: string }
         Returns: undefined
