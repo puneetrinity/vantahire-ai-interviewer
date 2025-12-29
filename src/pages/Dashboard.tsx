@@ -163,10 +163,39 @@ const Dashboard = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Interview Created",
-        description: "Share the interview link with your candidate."
-      });
+      // Send invitation email to candidate
+      const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
+      
+      try {
+        const { error: emailError } = await supabase.functions.invoke("send-candidate-invite", {
+          body: {
+            candidateEmail: newInterview.candidateEmail,
+            candidateName: newInterview.candidateName || null,
+            jobRole: newInterview.jobRole,
+            interviewId: data.id,
+            interviewUrl
+          }
+        });
+
+        if (emailError) {
+          console.error("Failed to send invitation email:", emailError);
+          toast({
+            title: "Interview Created",
+            description: "Interview created but email notification failed. Share the link manually."
+          });
+        } else {
+          toast({
+            title: "Interview Created & Email Sent",
+            description: `Invitation email sent to ${newInterview.candidateEmail}`
+          });
+        }
+      } catch (emailErr) {
+        console.error("Email sending error:", emailErr);
+        toast({
+          title: "Interview Created",
+          description: "Interview created but email notification failed. Share the link manually."
+        });
+      }
 
       setInterviews([data as Interview, ...interviews]);
       setCreateDialogOpen(false);
