@@ -7,6 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   Zap, 
   Mic, 
@@ -25,7 +35,9 @@ import {
   AlertTriangle,
   Send,
   MessageSquare,
-  Paperclip
+  Paperclip,
+  RefreshCw,
+  WifiOff
 } from "lucide-react";
 
 interface Interview {
@@ -71,6 +83,12 @@ const VoiceInterview = () => {
   const recordedChunksRef = useRef<Blob[]>([]);
   const [chatUploadedFile, setChatUploadedFile] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [showEndConfirmDialog, setShowEndConfirmDialog] = useState(false);
+  const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const intentionalDisconnectRef = useRef(false);
+  const maxReconnectAttempts = 3;
   const { toast } = useToast();
   const contextSentRef = useRef(false);
 
@@ -98,11 +116,23 @@ const VoiceInterview = () => {
   const conversation = useConversation({
     onConnect: () => {
       console.log("Connected to ElevenLabs agent");
+      setReconnectAttempts(0);
       toast({ title: "Connected", description: "AI interviewer is ready" });
     },
     onDisconnect: () => {
-      console.log("Disconnected from agent");
-      handleInterviewEnd();
+      console.log("Disconnected from agent, intentional:", intentionalDisconnectRef.current);
+      
+      // Only show dialog if it was NOT an intentional disconnect
+      if (!intentionalDisconnectRef.current && interview?.status === "in_progress") {
+        setShowDisconnectDialog(true);
+        toast({
+          variant: "destructive",
+          title: "Connection Lost",
+          description: "The connection to the AI interviewer was interrupted.",
+        });
+      } else if (intentionalDisconnectRef.current) {
+        // Will be handled by endInterview flow
+      }
     },
     onMessage: (message: any) => {
       console.log("Message:", message);
@@ -126,6 +156,59 @@ const VoiceInterview = () => {
       });
     },
   });
+
+  const attemptReconnect = useCallback(async () => {
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      toast({
+        variant: "destructive",
+        title: "Connection Lost",
+        description: "Unable to reconnect after multiple attempts. Please refresh and try again.",
+      });
+      setShowDisconnectDialog(false);
+      return;
+    }
+
+    setIsReconnecting(true);
+    setReconnectAttempts(prev => prev + 1);
+
+    try {
+      console.log(`Reconnect attempt ${reconnectAttempts + 1}/${maxReconnectAttempts}`);
+      
+      await conversation.startSession({
+        agentId: ELEVENLABS_AGENT_ID,
+        connectionType: "webrtc",
+      });
+
+      // Re-send context after reconnection
+      const context = buildInterviewContext();
+      if (context) {
+        setTimeout(() => {
+          try {
+            conversation.sendContextualUpdate(context);
+            console.log("Context re-sent after reconnection");
+          } catch (e) {
+            console.log("Could not re-send contextual update:", e);
+          }
+        }, 1000);
+      }
+
+      setShowDisconnectDialog(false);
+      setReconnectAttempts(0);
+      toast({
+        title: "Reconnected",
+        description: "Successfully reconnected to the AI interviewer.",
+      });
+    } catch (error) {
+      console.error("Reconnect failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Reconnect Failed",
+        description: `Attempt ${reconnectAttempts + 1} of ${maxReconnectAttempts} failed. Try again?`,
+      });
+    } finally {
+      setIsReconnecting(false);
+    }
+  }, [reconnectAttempts, conversation, buildInterviewContext, toast]);
 
   useEffect(() => {
     if (id) {
@@ -498,9 +581,20 @@ const VoiceInterview = () => {
     }
   }, [conversation, id, toast, candidateNotes, buildInterviewContext]);
 
+  const confirmEndInterview = useCallback(() => {
+    setShowEndConfirmDialog(true);
+  }, []);
+
   const endInterview = useCallback(async () => {
+    intentionalDisconnectRef.current = true;
+    setShowEndConfirmDialog(false);
     await conversation.endSession();
   }, [conversation]);
+
+  const endInterviewFromDisconnect = useCallback(async () => {
+    setShowDisconnectDialog(false);
+    handleInterviewEnd();
+  }, []);
 
   const sendChatMessage = useCallback(async () => {
     if (!chatMessage.trim() || !conversation || conversation.status !== "connected") {
@@ -629,7 +723,7 @@ const VoiceInterview = () => {
     }
   };
 
-  const handleInterviewEnd = async () => {
+  const handleInterviewEnd = useCallback(async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
@@ -688,7 +782,7 @@ const VoiceInterview = () => {
       title: "Interview Complete",
       description: "Thank you for completing the interview! The recruiter will review your responses.",
     });
-  };
+  }, [id, stopRecording, toast]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -977,7 +1071,7 @@ const VoiceInterview = () => {
                   <Button
                     variant="destructive"
                     size="lg"
-                    onClick={endInterview}
+                    onClick={confirmEndInterview}
                     className="rounded-full px-8"
                   >
                     <PhoneOff className="w-5 h-5 mr-2" />
@@ -1083,6 +1177,66 @@ const VoiceInterview = () => {
           </div>
         )}
       </main>
+
+      {/* End Interview Confirmation Dialog */}
+      <AlertDialog open={showEndConfirmDialog} onOpenChange={setShowEndConfirmDialog}>
+        <AlertDialogContent className="bg-background border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>End Interview?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to end this interview? This action cannot be undone and your responses will be submitted for review.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continue Interview</AlertDialogCancel>
+            <AlertDialogAction onClick={endInterview} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              End Interview
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Disconnect Recovery Dialog */}
+      <AlertDialog open={showDisconnectDialog} onOpenChange={setShowDisconnectDialog}>
+        <AlertDialogContent className="bg-background border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <WifiOff className="w-5 h-5 text-destructive" />
+              Connection Lost
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The connection to the AI interviewer was unexpectedly interrupted. This can happen due to network issues or temporary service unavailability.
+              {reconnectAttempts > 0 && (
+                <span className="block mt-2 text-muted-foreground">
+                  Reconnect attempts: {reconnectAttempts}/{maxReconnectAttempts}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={endInterviewFromDisconnect}>
+              End Interview
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={attemptReconnect} 
+              disabled={isReconnecting}
+              className="bg-primary text-primary-foreground"
+            >
+              {isReconnecting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Reconnecting...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Try Reconnect
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
