@@ -16,11 +16,13 @@ interface Message {
 
 interface Interview {
   id: string;
-  candidate_email: string;
-  candidate_name: string | null;
   job_role: string;
   status: string;
   score: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  time_limit_minutes: number | null;
+  expires_at: string | null;
 }
 
 interface Evaluation {
@@ -76,22 +78,21 @@ const Interview = () => {
 
   const fetchInterview = async () => {
     try {
+      // Use secure function that only returns safe columns for candidates
       const { data, error } = await supabase
-        .from("interviews")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
+        .rpc("get_candidate_interview_safe", { p_interview_id: id });
 
       if (error) throw error;
-      if (!data) {
+      if (!data || data.length === 0) {
         setError("Interview not found");
         return;
       }
 
-      setInterview(data);
+      const interviewData = data[0] as Interview;
+      setInterview(interviewData);
 
       // Check if interview is already completed
-      if (data.status === "completed") {
+      if (interviewData.status === "completed") {
         // Fetch existing messages
         const { data: messagesData } = await supabase
           .from("interview_messages")
@@ -105,10 +106,10 @@ const Interview = () => {
             content: m.content
           })));
         }
-      } else if (data.status === "pending") {
+      } else if (interviewData.status === "pending") {
         // Start the interview
-        await startInterview(data);
-      } else if (data.status === "in_progress") {
+        await startInterview(interviewData);
+      } else if (interviewData.status === "in_progress") {
         // Fetch existing messages
         const { data: messagesData } = await supabase
           .from("interview_messages")
@@ -122,7 +123,7 @@ const Interview = () => {
             content: m.content
           })));
         } else {
-          await startInterview(data);
+          await startInterview(interviewData);
         }
       }
     } catch (error: any) {
