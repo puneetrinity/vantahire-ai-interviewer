@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import EmailPreview from "@/components/EmailPreview";
+import BulkInviteDialog from "@/components/BulkInviteDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,6 +118,7 @@ const Dashboard = () => {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [improvingEmail, setImprovingEmail] = useState(false);
+  const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -589,6 +591,72 @@ const Dashboard = () => {
     }
   };
 
+  const handleBulkInvite = async (candidates: { email: string; name: string; jobRole: string }[]) => {
+    if (!user) return [];
+
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
+      return candidates.map(c => ({ email: c.email, success: false, error: "Session expired" }));
+    }
+
+    const results: { email: string; success: boolean; error?: string }[] = [];
+
+    for (const candidate of candidates) {
+      try {
+        // Create interview
+        const { data, error } = await supabase
+          .from("interviews")
+          .insert({
+            recruiter_id: user.id,
+            candidate_email: candidate.email,
+            candidate_name: candidate.name || null,
+            job_role: candidate.jobRole,
+            status: "pending",
+            time_limit_minutes: 30
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Send invitation email
+        const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
+        
+        const { error: emailError } = await supabase.functions.invoke("send-candidate-invite", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: {
+            candidateEmail: candidate.email,
+            candidateName: candidate.name || null,
+            jobRole: candidate.jobRole,
+            interviewId: data.id,
+            interviewUrl,
+            recruiterId: user.id
+          }
+        });
+
+        if (emailError) {
+          console.warn(`Email failed for ${candidate.email}:`, emailError);
+        }
+
+        setInterviews(prev => [data as Interview, ...prev]);
+        results.push({ email: candidate.email, success: true });
+      } catch (error: any) {
+        console.error(`Error for ${candidate.email}:`, error);
+        results.push({ email: candidate.email, success: false, error: error.message || "Failed" });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    if (successCount > 0) {
+      toast({
+        title: "Bulk Invites Sent",
+        description: `Successfully sent ${successCount} of ${candidates.length} invitations.`
+      });
+    }
+
+    return results;
+  };
+
   const deleteInterview = async (id: string) => {
     try {
       const { error } = await supabase
@@ -736,57 +804,70 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground">Manage your candidate interviews</p>
             </div>
 
-            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="hero">
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Interview
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Interview</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleCreateInterview} className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="candidateEmail">Candidate Email *</Label>
-                    <Input
-                      id="candidateEmail"
-                      type="email"
-                      placeholder="candidate@email.com"
-                      value={newInterview.candidateEmail}
-                      onChange={(e) => setNewInterview({...newInterview, candidateEmail: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="candidateName">Candidate Name</Label>
-                    <Input
-                      id="candidateName"
-                      type="text"
-                      placeholder="John Doe"
-                      value={newInterview.candidateName}
-                      onChange={(e) => setNewInterview({...newInterview, candidateName: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="jobRole">Job Role *</Label>
-                    <Input
-                      id="jobRole"
-                      type="text"
-                      placeholder="Senior Software Engineer"
-                      value={newInterview.jobRole}
-                      onChange={(e) => setNewInterview({...newInterview, jobRole: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <Button type="submit" variant="hero" className="w-full" disabled={creating}>
-                    {creating ? "Creating..." : "Create Interview"}
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setBulkInviteOpen(true)}>
+                <Users className="w-4 h-4 mr-2" />
+                Bulk Invite
+              </Button>
+              
+              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="hero">
+                    <Plus className="w-4 h-4 mr-2" />
+                    New Interview
                   </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create New Interview</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateInterview} className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="candidateEmail">Candidate Email *</Label>
+                      <Input
+                        id="candidateEmail"
+                        type="email"
+                        placeholder="candidate@email.com"
+                        value={newInterview.candidateEmail}
+                        onChange={(e) => setNewInterview({...newInterview, candidateEmail: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="candidateName">Candidate Name</Label>
+                      <Input
+                        id="candidateName"
+                        type="text"
+                        placeholder="John Doe"
+                        value={newInterview.candidateName}
+                        onChange={(e) => setNewInterview({...newInterview, candidateName: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="jobRole">Job Role *</Label>
+                      <Input
+                        id="jobRole"
+                        type="text"
+                        placeholder="Senior Software Engineer"
+                        value={newInterview.jobRole}
+                        onChange={(e) => setNewInterview({...newInterview, jobRole: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <Button type="submit" variant="hero" className="w-full" disabled={creating}>
+                      {creating ? "Creating..." : "Create Interview"}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
+
+          <BulkInviteDialog
+            open={bulkInviteOpen}
+            onOpenChange={setBulkInviteOpen}
+            onSubmit={handleBulkInvite}
+          />
 
           {interviews.length === 0 ? (
             <div className="p-12 text-center">
