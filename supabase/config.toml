@@ -4,7 +4,7 @@ project_id = "cknjyiukluuzaittclmr"
 verify_jwt = true
 
 [functions.generate-interview-summary]
-verify_jwt = true
+verify_jwt = false
 
 [functions.elevenlabs-conversation-token]
 verify_jwt = true
