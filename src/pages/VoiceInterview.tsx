@@ -846,18 +846,28 @@ const VoiceInterview = () => {
 
     // Then try to generate AI summary
     try {
-      console.log("Generating interview summary...");
+      console.log("Generating interview summary for:", id);
       const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
         body: { interviewId: id }
       });
 
       if (error) {
         console.error('Summary generation error:', error);
+        toast({
+          variant: "destructive",
+          title: "Summary Generation Failed",
+          description: "The interview was saved but we couldn't generate the AI summary. The recruiter will still see your responses.",
+        });
       } else {
-        console.log('Summary generated:', data);
+        console.log('Summary generated successfully:', data);
       }
     } catch (error) {
       console.error('Failed to generate summary:', error);
+      toast({
+        variant: "destructive",
+        title: "Summary Generation Failed",
+        description: "The interview was saved but we couldn't generate the AI summary.",
+      });
     } finally {
       setIsGeneratingSummary(false);
     }
