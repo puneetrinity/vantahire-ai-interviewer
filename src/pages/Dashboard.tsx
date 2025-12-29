@@ -955,9 +955,22 @@ const Dashboard = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => {
+                            onClick={async () => {
                               if (interview.recording_url) {
-                                window.open(interview.recording_url, "_blank");
+                                // Get signed URL for the recording
+                                const { data, error } = await supabase.storage
+                                  .from('interview-documents')
+                                  .createSignedUrl(interview.recording_url, 60 * 60); // 1 hour expiry
+                                
+                                if (error || !data?.signedUrl) {
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Error",
+                                    description: "Could not access recording. It may have expired.",
+                                  });
+                                  return;
+                                }
+                                window.open(data.signedUrl, "_blank");
                               } else {
                                 toast({
                                   title: "No Recording",
