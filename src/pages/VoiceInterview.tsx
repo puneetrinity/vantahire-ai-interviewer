@@ -72,6 +72,7 @@ const VoiceInterview = () => {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   const [showPreInterview, setShowPreInterview] = useState(true);
   const [candidateNotes, setCandidateNotes] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -299,6 +300,26 @@ const VoiceInterview = () => {
       };
     }
   }, [interview?.status, interview?.started_at]);
+
+  // Auto-redirect to dashboard after interview completion
+  useEffect(() => {
+    if (interview?.status === "completed" && !isGeneratingSummary) {
+      setRedirectCountdown(5);
+      
+      const countdownInterval = setInterval(() => {
+        setRedirectCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(countdownInterval);
+            navigate("/dashboard");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      return () => clearInterval(countdownInterval);
+    }
+  }, [interview?.status, isGeneratingSummary, navigate]);
 
   const fetchInterview = async () => {
     try {
@@ -1083,6 +1104,11 @@ const VoiceInterview = () => {
             <p className="text-primary-foreground/60 mb-6 max-w-md">
               Thank you for completing your interview. The recruiter has been notified and will review your responses and AI summary.
             </p>
+            {redirectCountdown !== null && redirectCountdown > 0 && (
+              <p className="text-sm text-primary-foreground/40">
+                Redirecting to dashboard in {redirectCountdown} second{redirectCountdown !== 1 ? 's' : ''}...
+              </p>
+            )}
           </div>
         ) : (
           <div className="grid lg:grid-cols-3 gap-8">
