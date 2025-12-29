@@ -137,27 +137,33 @@ export type Database = {
       }
       profiles: {
         Row: {
+          brand_color: string | null
           company_name: string | null
           created_at: string
           email: string | null
           full_name: string | null
           id: string
+          logo_url: string | null
           updated_at: string
         }
         Insert: {
+          brand_color?: string | null
           company_name?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
           id: string
+          logo_url?: string | null
           updated_at?: string
         }
         Update: {
+          brand_color?: string | null
           company_name?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
           id?: string
+          logo_url?: string | null
           updated_at?: string
         }
         Relationships: []

@@ -31,7 +31,9 @@ import {
   XCircle,
   HelpCircle,
   Video,
-  Mail
+  Mail,
+  Settings,
+  Palette
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -63,12 +65,29 @@ interface InterviewSummary {
   cultureFitScore: number;
 }
 
+interface RecruiterProfile {
+  company_name: string | null;
+  brand_color: string;
+  logo_url: string | null;
+}
+
+// Helper function to adjust color brightness
+const adjustColor = (color: string, amount: number): string => {
+  const hex = color.replace('#', '');
+  const num = parseInt(hex, 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amount));
+  const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+};
+
 const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
   const [transcriptMessages, setTranscriptMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [newInterview, setNewInterview] = useState({
@@ -78,6 +97,12 @@ const Dashboard = () => {
   });
   const [creating, setCreating] = useState(false);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [profile, setProfile] = useState<RecruiterProfile>({
+    company_name: null,
+    brand_color: '#6366f1',
+    logo_url: null
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -97,6 +122,7 @@ const Dashboard = () => {
         navigate("/auth");
       } else {
         fetchInterviews();
+        fetchProfile(session.user.id);
       }
     });
 
@@ -121,6 +147,60 @@ const Dashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("company_name, brand_color, logo_url")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data) {
+        setProfile({
+          company_name: data.company_name,
+          brand_color: data.brand_color || '#6366f1',
+          logo_url: data.logo_url
+        });
+      }
+    } catch (error: any) {
+      console.error("Error fetching profile:", error);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!user) return;
+    setSavingProfile(true);
+    
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          company_name: profile.company_name,
+          brand_color: profile.brand_color,
+          logo_url: profile.logo_url
+        })
+        .eq("id", user.id);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Settings Saved",
+        description: "Your branding settings have been updated."
+      });
+      setSettingsDialogOpen(false);
+    } catch (error: any) {
+      console.error("Error saving profile:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save settings"
+      });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -175,7 +255,8 @@ const Dashboard = () => {
             candidateName: newInterview.candidateName || null,
             jobRole: newInterview.jobRole,
             interviewId: data.id,
-            interviewUrl
+            interviewUrl,
+            recruiterId: user.id
           }
         });
 
@@ -234,7 +315,8 @@ const Dashboard = () => {
           candidateName: interview.candidate_name,
           jobRole: interview.job_role,
           interviewId: interview.id,
-          interviewUrl
+          interviewUrl,
+          recruiterId: user?.id
         }
       });
 
@@ -355,6 +437,9 @@ const Dashboard = () => {
           </a>
 
           <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => setSettingsDialogOpen(true)} title="Branding Settings">
+              <Settings className="w-4 h-4" />
+            </Button>
             <span className="text-sm text-muted-foreground hidden sm:block">
               {user?.email}
             </span>
@@ -744,6 +829,98 @@ const Dashboard = () => {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Dialog */}
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Palette className="w-5 h-5" />
+              Email Branding Settings
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6 mt-4">
+            <p className="text-sm text-muted-foreground">
+              Customize how your interview invitation and completion emails appear to candidates.
+            </p>
+            
+            <div className="space-y-2">
+              <Label htmlFor="companyName">Company Name</Label>
+              <Input
+                id="companyName"
+                type="text"
+                placeholder="Your Company Name"
+                value={profile.company_name || ""}
+                onChange={(e) => setProfile({...profile, company_name: e.target.value || null})}
+              />
+              <p className="text-xs text-muted-foreground">
+                This will appear in email headers and as the sender name.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="brandColor">Brand Color</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="brandColor"
+                  type="color"
+                  value={profile.brand_color}
+                  onChange={(e) => setProfile({...profile, brand_color: e.target.value})}
+                  className="w-14 h-10 p-1 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={profile.brand_color}
+                  onChange={(e) => setProfile({...profile, brand_color: e.target.value})}
+                  placeholder="#6366f1"
+                  className="flex-1"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Used for buttons, headers, and accent colors in emails.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="logoUrl">Logo URL (optional)</Label>
+              <Input
+                id="logoUrl"
+                type="url"
+                placeholder="https://yoursite.com/logo.png"
+                value={profile.logo_url || ""}
+                onChange={(e) => setProfile({...profile, logo_url: e.target.value || null})}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your company logo will appear at the top of emails.
+              </p>
+            </div>
+            
+            {/* Preview */}
+            <div className="border border-border rounded-lg overflow-hidden">
+              <div 
+                className="p-4 text-center"
+                style={{ background: `linear-gradient(135deg, ${profile.brand_color}, ${adjustColor(profile.brand_color, 30)})` }}
+              >
+                {profile.logo_url && (
+                  <img 
+                    src={profile.logo_url} 
+                    alt="Logo preview" 
+                    className="max-h-8 mx-auto mb-2"
+                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                  />
+                )}
+                <div className="text-white font-bold">{profile.company_name || "Your Company"}</div>
+                <div className="text-white/80 text-xs">Email Header Preview</div>
+              </div>
+            </div>
+            
+            <Button onClick={saveProfile} variant="hero" className="w-full" disabled={savingProfile}>
+              {savingProfile ? "Saving..." : "Save Settings"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

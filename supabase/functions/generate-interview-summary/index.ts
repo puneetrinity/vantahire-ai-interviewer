@@ -17,9 +17,14 @@ async function sendRecruiterNotification(
   jobRole: string,
   score: number,
   summary: any,
-  interviewId: string
+  interviewId: string,
+  branding: { company_name: string | null; brand_color: string | null; logo_url: string | null }
 ) {
-  const dashboardUrl = Deno.env.get("SUPABASE_URL")?.replace('.supabase.co', '') || '';
+  const companyName = branding.company_name || 'InterviewAI';
+  const brandColor = branding.brand_color || '#6366f1';
+  
+  // Generate gradient color
+  const gradientEnd = adjustColor(brandColor, 30);
   
   const strengthsList = summary.strengths?.map((s: string) => `<li>${s}</li>`).join('') || '';
   const improvementsList = summary.areasForImprovement?.map((s: string) => `<li>${s}</li>`).join('') || '';
@@ -31,28 +36,29 @@ async function sendRecruiterNotification(
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 30px; border-radius: 12px 12px 0 0; text-align: center; }
+        .header { background: linear-gradient(135deg, ${brandColor}, ${gradientEnd}); color: white; padding: 30px; border-radius: 12px 12px 0 0; text-align: center; }
         .content { background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px; }
         .score-badge { display: inline-block; background: #10b981; color: white; padding: 8px 16px; border-radius: 20px; font-size: 18px; font-weight: bold; }
         .score-low { background: #ef4444; }
         .score-medium { background: #f59e0b; }
         .section { background: white; padding: 20px; border-radius: 8px; margin: 15px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .section h3 { margin-top: 0; color: #6366f1; }
+        .section h3 { margin-top: 0; color: ${brandColor}; }
         .strengths li { color: #10b981; }
         .improvements li { color: #f59e0b; }
-        .recommendation { background: #eef2ff; padding: 15px; border-radius: 8px; border-left: 4px solid #6366f1; }
+        .recommendation { background: ${brandColor}11; padding: 15px; border-radius: 8px; border-left: 4px solid ${brandColor}; }
         .scores-grid { display: flex; gap: 10px; flex-wrap: wrap; }
         .score-item { flex: 1; min-width: 80px; text-align: center; padding: 10px; background: #f3f4f6; border-radius: 8px; }
-        .score-item .value { font-size: 24px; font-weight: bold; color: #6366f1; }
+        .score-item .value { font-size: 24px; font-weight: bold; color: ${brandColor}; }
         .score-item .label { font-size: 12px; color: #6b7280; }
-        .cta-button { display: inline-block; background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; }
+        .cta-button { display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin-top: 20px; }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
+          ${branding.logo_url ? `<img src="${branding.logo_url}" alt="${companyName}" style="max-height: 40px; max-width: 150px; margin-bottom: 12px;">` : ''}
           <h1>🎯 Interview Completed</h1>
-          <p style="margin: 0; opacity: 0.9;">AI Interview Summary Ready</p>
+          <p style="margin: 0; opacity: 0.9;">${companyName} - AI Interview Summary Ready</p>
         </div>
         <div class="content">
           <div style="text-align: center; margin-bottom: 20px;">
@@ -113,7 +119,7 @@ async function sendRecruiterNotification(
 
   try {
     const { error } = await resend.emails.send({
-      from: "InterviewAI <onboarding@resend.dev>",
+      from: `${companyName} <onboarding@resend.dev>`,
       to: [recruiterEmail],
       subject: `✅ Interview Complete: ${candidateName || 'Candidate'} - ${jobRole} (Score: ${score}/10)`,
       html: emailHtml,
@@ -130,6 +136,16 @@ async function sendRecruiterNotification(
     console.error("Error sending recruiter notification:", error);
     return false;
   }
+}
+
+// Helper function to adjust color brightness
+function adjustColor(color: string, amount: number): string {
+  const hex = color.replace('#', '');
+  const num = parseInt(hex, 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amount));
+  const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 serve(async (req) => {
@@ -159,10 +175,10 @@ serve(async (req) => {
       throw new Error('Interview not found');
     }
 
-    // Fetch recruiter's email from profiles
+    // Fetch recruiter's email and branding from profiles
     const { data: recruiterProfile } = await supabase
       .from('profiles')
-      .select('email')
+      .select('email, company_name, brand_color, logo_url')
       .eq('id', interview.recruiter_id)
       .single();
 
@@ -278,13 +294,20 @@ Respond ONLY with valid JSON, no additional text.`;
 
     // Send email notification to recruiter
     if (recruiterProfile?.email) {
+      const branding = {
+        company_name: recruiterProfile.company_name || null,
+        brand_color: recruiterProfile.brand_color || '#6366f1',
+        logo_url: recruiterProfile.logo_url || null
+      };
+      
       await sendRecruiterNotification(
         recruiterProfile.email,
         interview.candidate_name,
         interview.job_role,
         summary.overallScore,
         summary,
-        interviewId
+        interviewId,
+        branding
       );
     } else {
       console.log('No recruiter email found, skipping notification');
