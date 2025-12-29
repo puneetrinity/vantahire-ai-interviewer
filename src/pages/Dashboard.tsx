@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,7 +33,9 @@ import {
   Video,
   Mail,
   Settings,
-  Palette
+  Palette,
+  Upload,
+  X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -103,6 +105,8 @@ const Dashboard = () => {
     logo_url: null
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -201,6 +205,101 @@ const Dashboard = () => {
       });
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid File Type",
+        description: "Please upload a PNG, JPG, GIF, WebP, or SVG image."
+      });
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "File Too Large",
+        description: "Logo must be less than 2MB."
+      });
+      return;
+    }
+
+    setUploadingLogo(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/logo-${Date.now()}.${fileExt}`;
+
+      // Delete old logo if exists
+      if (profile.logo_url && profile.logo_url.includes('company-logos')) {
+        const oldPath = profile.logo_url.split('/company-logos/')[1];
+        if (oldPath) {
+          await supabase.storage.from('company-logos').remove([oldPath]);
+        }
+      }
+
+      // Upload new logo
+      const { error: uploadError } = await supabase.storage
+        .from('company-logos')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('company-logos')
+        .getPublicUrl(fileName);
+
+      setProfile({ ...profile, logo_url: publicUrl });
+      
+      toast({
+        title: "Logo Uploaded",
+        description: "Your company logo has been uploaded successfully."
+      });
+    } catch (error: any) {
+      console.error("Error uploading logo:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: "Could not upload logo. Please try again."
+      });
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) {
+        logoInputRef.current.value = '';
+      }
+    }
+  };
+
+  const removeLogo = async () => {
+    if (!user) return;
+
+    try {
+      // Delete from storage if it's our upload
+      if (profile.logo_url && profile.logo_url.includes('company-logos')) {
+        const oldPath = profile.logo_url.split('/company-logos/')[1];
+        if (oldPath) {
+          await supabase.storage.from('company-logos').remove([oldPath]);
+        }
+      }
+
+      setProfile({ ...profile, logo_url: null });
+      
+      toast({
+        title: "Logo Removed",
+        description: "Your company logo has been removed."
+      });
+    } catch (error: any) {
+      console.error("Error removing logo:", error);
     }
   };
 
@@ -885,16 +984,65 @@ const Dashboard = () => {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="logoUrl">Logo URL (optional)</Label>
-              <Input
-                id="logoUrl"
-                type="url"
-                placeholder="https://yoursite.com/logo.png"
-                value={profile.logo_url || ""}
-                onChange={(e) => setProfile({...profile, logo_url: e.target.value || null})}
+              <Label>Company Logo (optional)</Label>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                onChange={handleLogoUpload}
+                className="hidden"
               />
+              
+              {profile.logo_url ? (
+                <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-lg">
+                  <img 
+                    src={profile.logo_url} 
+                    alt="Company logo" 
+                    className="h-10 max-w-[120px] object-contain"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate">Logo uploaded</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={uploadingLogo}
+                    >
+                      <Upload className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={removeLogo}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                >
+                  {uploadingLogo ? (
+                    <>Uploading...</>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload Logo
+                    </>
+                  )}
+                </Button>
+              )}
               <p className="text-xs text-muted-foreground">
-                Your company logo will appear at the top of emails.
+                PNG, JPG, GIF, WebP, or SVG. Max 2MB.
               </p>
             </div>
             
