@@ -1,16 +1,13 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
-import { Resend } from "https://esm.sh/resend@2.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-
-// Send notification email to recruiter
+// Send notification email to recruiter using Brevo
 async function sendRecruiterNotification(
   recruiterEmail: string,
   candidateName: string,
@@ -20,7 +17,13 @@ async function sendRecruiterNotification(
   interviewId: string,
   branding: { company_name: string | null; brand_color: string | null; logo_url: string | null }
 ) {
-  const companyName = branding.company_name || 'InterviewAI';
+  const brevoApiKey = Deno.env.get("BREVO_API_KEY");
+  if (!brevoApiKey) {
+    console.error("BREVO_API_KEY not configured");
+    return false;
+  }
+
+  const companyName = branding.company_name || 'VantaHire';
   const brandColor = branding.brand_color || '#6366f1';
   
   // Generate gradient color
@@ -118,18 +121,31 @@ async function sendRecruiterNotification(
   `;
 
   try {
-    const { error } = await resend.emails.send({
-      from: `${companyName} <onboarding@resend.dev>`,
-      to: [recruiterEmail],
-      subject: `✅ Interview Complete: ${candidateName || 'Candidate'} - ${jobRole} (Score: ${score}/10)`,
-      html: emailHtml,
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: { 
+          name: companyName, 
+          email: "noreply@vantahire.com" 
+        },
+        to: [{ email: recruiterEmail }],
+        subject: `✅ Interview Complete: ${candidateName || 'Candidate'} - ${jobRole} (Score: ${score}/10)`,
+        htmlContent: emailHtml,
+      }),
     });
 
-    if (error) {
-      console.error("Email send error:", error.message);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Brevo email send error:", errorText);
       return false;
     }
 
+    console.log("Email sent successfully to:", recruiterEmail);
     return true;
   } catch (error: any) {
     console.error("Email error:", error.message);
@@ -283,6 +299,8 @@ serve(async (req) => {
       );
     }
 
+    console.log(`Found ${messages?.length || 0} messages for interview ${interviewId}`);
+
     // Build transcript text
     const transcript = messages
       .map(m => `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`)
@@ -359,12 +377,14 @@ Respond ONLY with valid JSON, no additional text.`;
     try {
       summary = JSON.parse(summaryText);
     } catch (e) {
-      console.error('Failed to parse AI response');
+      console.error('Failed to parse AI response:', summaryText);
       return new Response(
         JSON.stringify({ error: 'Failed to parse AI response' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log("Generated summary with score:", summary.overallScore);
 
     // Update interview with summary
     const { error: updateError } = await supabase
@@ -393,7 +413,7 @@ Respond ONLY with valid JSON, no additional text.`;
         logo_url: recruiterProfile.logo_url || null
       };
       
-      await sendRecruiterNotification(
+      const emailSent = await sendRecruiterNotification(
         recruiterProfile.email,
         interview.candidate_name,
         interview.job_role,
@@ -402,6 +422,8 @@ Respond ONLY with valid JSON, no additional text.`;
         interviewId,
         branding
       );
+      
+      console.log("Email notification sent:", emailSent);
     }
 
     return new Response(
