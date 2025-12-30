@@ -13,6 +13,8 @@ import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Interview from "./pages/Interview";
 import VoiceInterview from "./pages/VoiceInterview";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +36,8 @@ const App = () => (
           <Route path="/settings" element={<Settings />} />
           <Route path="/interview/:id" element={<Interview />} />
           <Route path="/voice-interview/:id" element={<VoiceInterview />} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/auth" element={<AdminAuth />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
