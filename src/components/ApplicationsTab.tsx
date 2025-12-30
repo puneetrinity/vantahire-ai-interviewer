@@ -99,7 +99,9 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
     
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // First, fetch applications with jobs (filtering by recruiter)
+      const { data: appData, error: appError } = await supabase
         .from("job_applications")
         .select(`
           *,
@@ -109,28 +111,50 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
             department,
             location,
             recruiter_id
-          ),
-          candidate_profiles!inner (
-            full_name,
-            email,
-            phone,
-            bio,
-            skills,
-            experience_years,
-            linkedin_url,
-            portfolio_url
           )
         `)
         .eq("jobs.recruiter_id", user.id)
         .order("applied_at", { ascending: false });
 
-      if (error) throw error;
-      setApplications((data as unknown as JobApplication[]) || []);
+      if (appError) throw appError;
+      
+      if (!appData || appData.length === 0) {
+        setApplications([]);
+        setJobs([]);
+        setLoading(false);
+        return;
+      }
+
+      // Get unique candidate IDs
+      const candidateIds = [...new Set(appData.map(app => app.candidate_id))];
+      
+      // Fetch candidate profiles separately
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("candidate_profiles")
+        .select("user_id, full_name, email, phone, bio, skills, experience_years, linkedin_url, portfolio_url")
+        .in("user_id", candidateIds);
+
+      if (profilesError) {
+        console.error("Error fetching profiles:", profilesError);
+      }
+
+      // Create a map of candidate profiles
+      const profilesMap = new Map(
+        (profilesData || []).map(p => [p.user_id, p])
+      );
+
+      // Merge applications with candidate profiles
+      const mergedData = appData.map(app => ({
+        ...app,
+        candidate_profiles: profilesMap.get(app.candidate_id) || null
+      }));
+
+      setApplications(mergedData as unknown as JobApplication[]);
       
       // Extract unique jobs for filter
       const uniqueJobs = Array.from(
         new Map(
-          (data || []).map((app: any) => [app.jobs?.id, { id: app.jobs?.id, title: app.jobs?.title }])
+          appData.map((app: any) => [app.jobs?.id, { id: app.jobs?.id, title: app.jobs?.title }])
         ).values()
       ).filter(job => job.id && job.title);
       setJobs(uniqueJobs);
