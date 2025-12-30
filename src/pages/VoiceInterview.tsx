@@ -94,11 +94,15 @@ const VoiceInterview = () => {
   const [cameraWorking, setCameraWorking] = useState<boolean | null>(null);
   const [micWorking, setMicWorking] = useState<boolean | null>(null);
   const [micLevel, setMicLevel] = useState(0);
+  const [liveMicLevel, setLiveMicLevel] = useState(0);
   const testVideoRef = useRef<HTMLVideoElement>(null);
   const testStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const liveAudioContextRef = useRef<AudioContext | null>(null);
+  const liveAnalyserRef = useRef<AnalyserNode | null>(null);
+  const liveAnimationFrameRef = useRef<number | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -470,6 +474,27 @@ const VoiceInterview = () => {
         videoRef.current.muted = true; // Mute to prevent feedback
       }
       setVideoEnabled(true);
+      
+      // Set up live audio level monitoring
+      liveAudioContextRef.current = new AudioContext();
+      const source = liveAudioContextRef.current.createMediaStreamSource(stream);
+      liveAnalyserRef.current = liveAudioContextRef.current.createAnalyser();
+      liveAnalyserRef.current.fftSize = 256;
+      source.connect(liveAnalyserRef.current);
+      
+      const dataArray = new Uint8Array(liveAnalyserRef.current.frequencyBinCount);
+      
+      const updateLiveMicLevel = () => {
+        if (liveAnalyserRef.current) {
+          liveAnalyserRef.current.getByteFrequencyData(dataArray);
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const normalizedLevel = Math.min(100, (average / 128) * 100);
+          setLiveMicLevel(normalizedLevel);
+        }
+        liveAnimationFrameRef.current = requestAnimationFrame(updateLiveMicLevel);
+      };
+      
+      updateLiveMicLevel();
     } catch (error) {
       console.error("Error accessing camera:", error);
       toast({
@@ -478,6 +503,18 @@ const VoiceInterview = () => {
         description: "Could not access camera. Please check permissions.",
       });
     }
+  };
+  
+  const stopLiveAudioMonitoring = () => {
+    if (liveAnimationFrameRef.current) {
+      cancelAnimationFrame(liveAnimationFrameRef.current);
+      liveAnimationFrameRef.current = null;
+    }
+    if (liveAudioContextRef.current) {
+      liveAudioContextRef.current.close();
+      liveAudioContextRef.current = null;
+    }
+    setLiveMicLevel(0);
   };
 
   const startRecording = useCallback(() => {
@@ -597,6 +634,7 @@ const VoiceInterview = () => {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    stopLiveAudioMonitoring();
     setVideoEnabled(false);
   };
 
@@ -1455,21 +1493,43 @@ const VoiceInterview = () => {
                   </Button>
                 )}
 
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  onClick={toggleMic}
-                  disabled={!isConnected}
-                  className={`rounded-full w-14 h-14 ${
-                    !micEnabled 
-                      ? "bg-destructive text-destructive-foreground" 
-                      : isConnected 
-                        ? "bg-accent text-accent-foreground" 
-                        : "bg-muted"
-                  }`}
-                >
-                  {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    onClick={toggleMic}
+                    disabled={!isConnected}
+                    className={`rounded-full w-14 h-14 ${
+                      !micEnabled 
+                        ? "bg-destructive text-destructive-foreground" 
+                        : isConnected 
+                          ? "bg-accent text-accent-foreground" 
+                          : "bg-muted"
+                    }`}
+                  >
+                    {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                  </Button>
+                  
+                  {/* Live Mic Level Indicator */}
+                  {isConnected && micEnabled && (
+                    <div className="flex flex-col gap-0.5 h-10">
+                      {[...Array(5)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={`w-2 h-1.5 rounded-sm transition-all duration-75 ${
+                            liveMicLevel > (4 - i) * 20 
+                              ? i === 0 
+                                ? "bg-destructive" 
+                                : i === 1 
+                                  ? "bg-yellow-500" 
+                                  : "bg-accent"
+                              : "bg-muted"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
