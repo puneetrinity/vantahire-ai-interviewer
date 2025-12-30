@@ -11,6 +11,7 @@ import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent, validateNotes } from "@/lib/validateInput";
 import AppLayout from "@/components/AppLayout";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
+import PageErrorState from "@/components/PageErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +30,6 @@ import {
   Phone, 
   PhoneOff,
   Loader2, 
-  XCircle,
   Volume2,
   User,
   Upload,
@@ -949,13 +949,12 @@ const VoiceInterview = () => {
 
   if (error || authError || !interview) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <XCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">{error || authError || "Interview not found"}</h2>
-          <p className="text-muted-foreground">Please check the link and try again.</p>
-        </div>
-      </div>
+      <PageErrorState
+        variant="not-found"
+        title={error || authError || "Interview not found"}
+        description="Please check the link and try again."
+        showFooter
+      />
     );
   }
 
