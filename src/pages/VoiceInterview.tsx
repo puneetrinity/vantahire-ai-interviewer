@@ -180,11 +180,12 @@ const VoiceInterview = () => {
       setTranscript(prev => [...prev, { role, text: validation.sanitized! }]);
       
       // Track the promise so we can wait for all messages to be saved
+      // Use RPC function to bypass RLS issues with anonymous users
       const savePromise = new Promise<void>((resolve) => {
-        supabase.from("interview_messages").insert({
-          interview_id: id,
-          role,
-          content: validation.sanitized!,
+        supabase.rpc('insert_interview_message', {
+          p_interview_id: id,
+          p_role: role,
+          p_content: validation.sanitized!,
         }).then(({ error }) => {
           if (error) {
             console.error("Failed to save message:", error);
@@ -711,11 +712,11 @@ const VoiceInterview = () => {
       // Add message to transcript immediately
       setTranscript(prev => [...prev, { role: "user", text: messageText }]);
       
-      // Save to database
-      await supabase.from("interview_messages").insert({
-        interview_id: id,
-        role: "user",
-        content: messageText,
+      // Save to database using RPC function to bypass RLS issues
+      await supabase.rpc('insert_interview_message', {
+        p_interview_id: id,
+        p_role: "user",
+        p_content: messageText,
       });
 
       // Send to ElevenLabs agent

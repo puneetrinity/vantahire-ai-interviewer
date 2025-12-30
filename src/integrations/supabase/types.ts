@@ -414,6 +414,10 @@ export type Database = {
           time_limit_minutes: number
         }[]
       }
+      insert_interview_message: {
+        Args: { p_content: string; p_interview_id: string; p_role: string }
+        Returns: string
+      }
       update_interview_recording: {
         Args: { p_interview_id: string; p_recording_url: string }
         Returns: undefined
