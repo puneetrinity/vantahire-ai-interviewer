@@ -16,7 +16,12 @@ import {
   LogOut,
   ExternalLink,
   Calendar,
-  Award
+  Award,
+  Briefcase,
+  Building2,
+  MapPin,
+  Send,
+  Eye
 } from "lucide-react";
 import { format } from "date-fns";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
@@ -45,10 +50,23 @@ interface CandidateProfile {
   experience_years: number | null;
 }
 
+interface JobApplication {
+  id: string;
+  job_id: string;
+  status: string;
+  cover_letter: string | null;
+  applied_at: string;
+  updated_at: string;
+  job_title?: string;
+  company_name?: string;
+  location?: string;
+}
+
 const CandidateDashboard = () => {
   const navigate = useNavigate();
   const { user, role, isLoading: roleLoading } = useUserRole();
   const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [applications, setApplications] = useState<JobApplication[]>([]);
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -96,6 +114,52 @@ const CandidateDashboard = () => {
       } else {
         setInterviews(interviewData || []);
       }
+
+      // Fetch job applications
+      const { data: applicationsData, error: applicationsError } = await supabase
+        .from('job_applications')
+        .select('id, job_id, status, cover_letter, applied_at, updated_at')
+        .eq('candidate_id', user!.id)
+        .order('applied_at', { ascending: false });
+
+      if (applicationsError) {
+        console.error('Error fetching applications:', applicationsError);
+      } else if (applicationsData && applicationsData.length > 0) {
+        // Fetch job details for applications
+        const jobIds = applicationsData.map(app => app.job_id);
+        const { data: jobsData, error: jobsError } = await supabase
+          .from('jobs')
+          .select('id, title, location, recruiter_id')
+          .in('id', jobIds);
+
+        if (jobsError) {
+          console.error('Error fetching job details:', jobsError);
+          setApplications(applicationsData);
+        } else {
+          // Get recruiter profiles for company names
+          const recruiterIds = [...new Set(jobsData?.map(j => j.recruiter_id) || [])];
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('id, company_name')
+            .in('id', recruiterIds);
+
+          const profilesMap = new Map(profilesData?.map(p => [p.id, p.company_name]) || []);
+          const jobsMap = new Map(jobsData?.map(j => [j.id, { 
+            title: j.title, 
+            location: j.location,
+            company_name: profilesMap.get(j.recruiter_id)
+          }]) || []);
+
+          setApplications(applicationsData.map(app => ({
+            ...app,
+            job_title: jobsMap.get(app.job_id)?.title,
+            company_name: jobsMap.get(app.job_id)?.company_name,
+            location: jobsMap.get(app.job_id)?.location,
+          })));
+        }
+      } else {
+        setApplications([]);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error("Failed to load data");
@@ -124,6 +188,29 @@ const CandidateDashboard = () => {
     }
   };
 
+  const getApplicationStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Pending</Badge>;
+      case 'reviewing':
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Under Review</Badge>;
+      case 'interview_scheduled':
+        return <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">Interview Scheduled</Badge>;
+      case 'interviewed':
+        return <Badge className="bg-indigo-500/20 text-indigo-400 border-indigo-500/30">Interviewed</Badge>;
+      case 'offered':
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Offer Made</Badge>;
+      case 'hired':
+        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Hired!</Badge>;
+      case 'rejected':
+        return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Not Selected</Badge>;
+      case 'withdrawn':
+        return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Withdrawn</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-400';
     if (score >= 60) return 'text-yellow-400';
@@ -137,6 +224,7 @@ const CandidateDashboard = () => {
   const pendingInterviews = interviews.filter(i => i.status === 'pending');
   const completedInterviews = interviews.filter(i => i.status === 'completed');
   const inProgressInterviews = interviews.filter(i => i.status === 'in_progress');
+  const pendingApplications = applications.filter(a => a.status === 'pending' || a.status === 'reviewing');
 
   return (
     <div className="min-h-screen bg-background">
@@ -159,14 +247,14 @@ const CandidateDashboard = () => {
 
       <main className="container mx-auto px-4 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
           <Card className="border-border/50">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
-                <FileText className="h-8 w-8 text-primary" />
+                <Send className="h-8 w-8 text-primary" />
                 <div>
-                  <p className="text-2xl font-bold">{interviews.length}</p>
-                  <p className="text-sm text-muted-foreground">Total Interviews</p>
+                  <p className="text-2xl font-bold">{applications.length}</p>
+                  <p className="text-sm text-muted-foreground">Applications</p>
                 </div>
               </div>
             </CardContent>
@@ -175,10 +263,22 @@ const CandidateDashboard = () => {
           <Card className="border-border/50">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
-                <Clock className="h-8 w-8 text-yellow-400" />
+                <Eye className="h-8 w-8 text-yellow-400" />
                 <div>
-                  <p className="text-2xl font-bold">{pendingInterviews.length}</p>
-                  <p className="text-sm text-muted-foreground">Pending</p>
+                  <p className="text-2xl font-bold">{pendingApplications.length}</p>
+                  <p className="text-sm text-muted-foreground">In Review</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <FileText className="h-8 w-8 text-blue-400" />
+                <div>
+                  <p className="text-2xl font-bold">{interviews.length}</p>
+                  <p className="text-sm text-muted-foreground">Interviews</p>
                 </div>
               </div>
             </CardContent>
@@ -213,11 +313,86 @@ const CandidateDashboard = () => {
           </Card>
         </div>
 
-        <Tabs defaultValue="interviews" className="w-full">
+        <Tabs defaultValue="applications" className="w-full">
           <TabsList className="mb-6">
-            <TabsTrigger value="interviews">My Interviews</TabsTrigger>
+            <TabsTrigger value="applications" className="flex items-center gap-2">
+              <Send className="h-4 w-4" />
+              My Applications
+              {applications.length > 0 && (
+                <Badge variant="secondary" className="ml-1">{applications.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="interviews" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              My Interviews
+            </TabsTrigger>
             <TabsTrigger value="profile">My Profile</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="applications">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Job Applications</h2>
+                <Button variant="outline" size="sm" onClick={() => navigate('/jobs')}>
+                  <Briefcase className="h-4 w-4 mr-2" />
+                  Browse Jobs
+                </Button>
+              </div>
+
+              {applications.length === 0 ? (
+                <Card className="border-border/50">
+                  <CardContent className="py-12 text-center">
+                    <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No Applications Yet</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Start your job search and apply to positions that match your skills.
+                    </p>
+                    <Button onClick={() => navigate('/jobs')}>
+                      Browse Jobs
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {applications.map((application) => (
+                    <Card key={application.id} className="border-border/50 hover:border-primary/30 transition-colors">
+                      <CardContent className="py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <Building2 className="h-6 w-6 text-primary" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium">{application.job_title || 'Job Position'}</h3>
+                              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                                {application.company_name && (
+                                  <span>{application.company_name}</span>
+                                )}
+                                {application.location && (
+                                  <span className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3" />
+                                    {application.location}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                <Calendar className="h-3 w-3" />
+                                Applied {format(new Date(application.applied_at), 'MMM d, yyyy')}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            {getApplicationStatusBadge(application.status)}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
           <TabsContent value="interviews">
             {interviews.length === 0 ? (

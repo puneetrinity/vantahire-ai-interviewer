@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { 
   Search, 
   MapPin, 
@@ -17,7 +19,10 @@ import {
   Building2,
   DollarSign,
   ChevronRight,
-  Filter
+  Filter,
+  CheckCircle,
+  Send,
+  Loader2
 } from "lucide-react";
 import {
   Select,
@@ -33,6 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 interface Job {
   id: string;
@@ -49,10 +55,44 @@ interface Job {
 }
 
 const Jobs = () => {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("all");
   const [jobTypeFilter, setJobTypeFilter] = useState<string>("all");
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [coverLetter, setCoverLetter] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
+
+  // Check auth status
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch user's applications
+  const { data: userApplications } = useQuery({
+    queryKey: ["user-applications", user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from("job_applications")
+        .select("job_id, status")
+        .eq("candidate_id", user.id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user,
+  });
 
   const { data: jobs, isLoading } = useQuery({
     queryKey: ["public-jobs"],
@@ -137,6 +177,150 @@ const Jobs = () => {
       case "internship": return "Internship";
       default: return type || "Full-time";
     }
+  };
+
+  const hasApplied = (jobId: string) => {
+    return userApplications?.some(app => app.job_id === jobId);
+  };
+
+  const getApplicationStatus = (jobId: string) => {
+    const app = userApplications?.find(app => app.job_id === jobId);
+    return app?.status;
+  };
+
+  const handleApply = async (job: Job) => {
+    if (!user) {
+      // Redirect to auth if not logged in
+      window.location.href = "/candidate/auth";
+      return;
+    }
+
+    setIsApplying(true);
+    try {
+      const { error } = await supabase
+        .from("job_applications")
+        .insert({
+          job_id: job.id,
+          candidate_id: user.id,
+          cover_letter: coverLetter || null,
+          status: "pending",
+        });
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error("You have already applied to this job");
+        } else {
+          throw error;
+        }
+      } else {
+        toast.success("Application submitted successfully!");
+        queryClient.invalidateQueries({ queryKey: ["user-applications"] });
+        setCoverLetter("");
+        setSelectedJob(null);
+      }
+    } catch (error: any) {
+      console.error("Error applying:", error);
+      toast.error("Failed to submit application");
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "pending": return "Application Pending";
+      case "reviewing": return "Under Review";
+      case "interview_scheduled": return "Interview Scheduled";
+      case "interviewed": return "Interviewed";
+      case "offered": return "Offer Made";
+      case "hired": return "Hired";
+      case "rejected": return "Not Selected";
+      case "withdrawn": return "Withdrawn";
+      default: return status;
+    }
+  };
+
+  const renderApplicationSection = (job: Job) => {
+    const applied = hasApplied(job.id);
+    const status = getApplicationStatus(job.id);
+
+    if (applied) {
+      return (
+        <div className="pt-4 border-t">
+          <div className="flex items-center gap-2 p-4 bg-primary/10 rounded-lg">
+            <CheckCircle className="h-5 w-5 text-primary" />
+            <div>
+              <p className="font-medium">You've applied to this job</p>
+              <p className="text-sm text-muted-foreground">
+                Status: {getStatusLabel(status || "pending")}
+              </p>
+            </div>
+          </div>
+          <Button 
+            variant="outline" 
+            className="w-full mt-3"
+            onClick={() => setSelectedJob(null)}
+          >
+            Close
+          </Button>
+        </div>
+      );
+    }
+
+    if (!user) {
+      return (
+        <div className="pt-4 border-t space-y-3">
+          <p className="text-sm text-muted-foreground text-center">
+            Sign in as a candidate to apply for this job
+          </p>
+          <div className="flex gap-3">
+            <Button asChild className="flex-1">
+              <a href="/candidate/auth">Sign In to Apply</a>
+            </Button>
+            <Button variant="outline" onClick={() => setSelectedJob(null)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="pt-4 border-t space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="cover-letter">Cover Letter (Optional)</Label>
+          <Textarea
+            id="cover-letter"
+            placeholder="Tell the employer why you're a great fit for this role..."
+            value={coverLetter}
+            onChange={(e) => setCoverLetter(e.target.value)}
+            rows={4}
+          />
+        </div>
+        <div className="flex gap-3">
+          <Button 
+            className="flex-1"
+            onClick={() => handleApply(job)}
+            disabled={isApplying}
+          >
+            {isApplying ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Submit Application
+              </>
+            )}
+          </Button>
+          <Button variant="outline" onClick={() => setSelectedJob(null)}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -437,15 +621,8 @@ const Jobs = () => {
                   {formatDate(selectedJob.created_at)}
                 </div>
 
-                {/* Apply Button */}
-                <div className="flex gap-3 pt-4 border-t">
-                  <Button asChild className="flex-1">
-                    <a href="/candidate/auth">Apply Now</a>
-                  </Button>
-                  <Button variant="outline" onClick={() => setSelectedJob(null)}>
-                    Close
-                  </Button>
-                </div>
+                {/* Application Section */}
+                {renderApplicationSection(selectedJob)}
               </div>
             </>
           )}
