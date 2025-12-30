@@ -43,12 +43,12 @@ serve(async (req) => {
       throw new Error("At least one transcript is required");
     }
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!OPENROUTER_API_KEY) {
-      throw new Error("OPENROUTER_API_KEY is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    console.log("Generating final recommendation using Nous Hermes 3 405B for:", candidateName, jobRole);
+    console.log("Generating final recommendation using Gemini for:", candidateName, jobRole);
 
     const systemPrompt = `You are an expert HR analyst and interview evaluator. Your task is to analyze interview transcripts and provide a comprehensive, data-driven hiring recommendation.
 
@@ -111,28 +111,28 @@ Please provide your analysis in the following JSON format:
 
 Return ONLY valid JSON, no other text.`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://vantahire.com",
-        "X-Title": "VantaHire Interview Analysis",
       },
       body: JSON.stringify({
-        model: "nousresearch/hermes-3-llama-3.1-405b:free",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+          }
         ],
-        temperature: 0.7,
-        max_tokens: 4000,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 4000,
+        },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("OpenRouter API error:", response.status, errorText);
+      console.error("Gemini API error:", response.status, errorText);
       
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
@@ -140,23 +140,23 @@ Return ONLY valid JSON, no other text.`;
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402 || response.status === 401) {
-        return new Response(JSON.stringify({ error: "OpenRouter API key invalid." }), {
-          status: 402,
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        return new Response(JSON.stringify({ error: "Gemini API key invalid or unauthorized." }), {
+          status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error(`OpenRouter API error: ${response.status}`);
+      throw new Error(`Gemini API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
-      throw new Error("No content in DeepSeek response");
+      throw new Error("No content in Gemini response");
     }
 
-    console.log("Raw OpenRouter response:", content);
+    console.log("Raw Gemini response:", content);
 
     // Parse JSON from response (handle markdown code blocks)
     let recommendation: FinalRecommendation;
@@ -173,7 +173,7 @@ Return ONLY valid JSON, no other text.`;
       }
       recommendation = JSON.parse(jsonStr.trim());
     } catch (parseError) {
-      console.error("Failed to parse OpenRouter response:", parseError);
+      console.error("Failed to parse Gemini response:", parseError);
       // Return a fallback recommendation
       recommendation = {
         overallAssessment: "Analysis completed but structured output could not be generated. Please review the transcripts manually.",
