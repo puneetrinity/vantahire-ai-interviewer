@@ -14,6 +14,98 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          key_hash: string
+          key_prefix: string
+          last_request_at: string | null
+          last_reset_at: string | null
+          name: string
+          rate_limit_per_day: number | null
+          requests_today: number | null
+          revoked_at: string | null
+          scopes: string[] | null
+          status: Database["public"]["Enums"]["api_key_status"] | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          key_hash: string
+          key_prefix: string
+          last_request_at?: string | null
+          last_reset_at?: string | null
+          name: string
+          rate_limit_per_day?: number | null
+          requests_today?: number | null
+          revoked_at?: string | null
+          scopes?: string[] | null
+          status?: Database["public"]["Enums"]["api_key_status"] | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          key_hash?: string
+          key_prefix?: string
+          last_request_at?: string | null
+          last_reset_at?: string | null
+          name?: string
+          rate_limit_per_day?: number | null
+          requests_today?: number | null
+          revoked_at?: string | null
+          scopes?: string[] | null
+          status?: Database["public"]["Enums"]["api_key_status"] | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      api_usage_logs: {
+        Row: {
+          api_key_id: string
+          created_at: string | null
+          endpoint: string
+          id: string
+          ip_address: string | null
+          method: string
+          response_time_ms: number | null
+          status_code: number | null
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string | null
+          endpoint: string
+          id?: string
+          ip_address?: string | null
+          method: string
+          response_time_ms?: number | null
+          status_code?: number | null
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string | null
+          endpoint?: string
+          id?: string
+          ip_address?: string | null
+          method?: string
+          response_time_ms?: number | null
+          status_code?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_logs_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidate_interviews: {
         Row: {
           anon_user_id: string
@@ -200,6 +292,10 @@ export type Database = {
           full_name: string | null
           id: string
           logo_url: string | null
+          subscription_status:
+            | Database["public"]["Enums"]["subscription_status"]
+            | null
+          subscription_updated_at: string | null
           updated_at: string
         }
         Insert: {
@@ -213,6 +309,10 @@ export type Database = {
           full_name?: string | null
           id: string
           logo_url?: string | null
+          subscription_status?:
+            | Database["public"]["Enums"]["subscription_status"]
+            | null
+          subscription_updated_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -226,6 +326,10 @@ export type Database = {
           full_name?: string | null
           id?: string
           logo_url?: string | null
+          subscription_status?:
+            | Database["public"]["Enums"]["subscription_status"]
+            | null
+          subscription_updated_at?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -288,6 +392,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_api_key: {
+        Args: { p_name: string }
+        Returns: {
+          api_key_id: string
+          full_key: string
+        }[]
+      }
       get_candidate_interview_safe: {
         Args: { p_interview_id: string }
         Returns: {
@@ -311,9 +422,21 @@ export type Database = {
         Args: { p_interview_id: string; p_score?: number; p_status: string }
         Returns: undefined
       }
+      validate_api_key: {
+        Args: { p_api_key: string }
+        Returns: {
+          api_key_id: string
+          error_message: string
+          is_valid: boolean
+          rate_limit_remaining: number
+          scopes: string[]
+          user_id: string
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      api_key_status: "active" | "revoked" | "expired"
+      subscription_status: "free" | "paid" | "enterprise"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -440,6 +563,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      api_key_status: ["active", "revoked", "expired"],
+      subscription_status: ["free", "paid", "enterprise"],
+    },
   },
 } as const
