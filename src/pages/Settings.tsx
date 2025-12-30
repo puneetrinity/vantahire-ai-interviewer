@@ -10,7 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   LogOut,
   Palette,
@@ -22,6 +31,13 @@ import {
   User,
   Save,
   ArrowLeft,
+  Key,
+  Plus,
+  Copy,
+  Trash2,
+  Eye,
+  EyeOff,
+  AlertTriangle,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -34,6 +50,19 @@ interface RecruiterProfile {
   email_cta_text: string | null;
   full_name: string | null;
   email: string | null;
+  subscription_status: string | null;
+}
+
+interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  status: string;
+  created_at: string;
+  last_request_at: string | null;
+  requests_today: number;
+  rate_limit_per_day: number;
+  expires_at: string | null;
 }
 
 const Settings = () => {
@@ -48,10 +77,22 @@ const Settings = () => {
     email_cta_text: null,
     full_name: null,
     email: null,
+    subscription_status: null,
   });
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [improvingEmail, setImprovingEmail] = useState(false);
+  
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+  const [createKeyDialogOpen, setCreateKeyDialogOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  const [showNewKey, setShowNewKey] = useState(false);
+  const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
+  
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -82,7 +123,7 @@ const Settings = () => {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text, full_name, email")
+        .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text, full_name, email, subscription_status")
         .eq("id", userId)
         .maybeSingle();
 
@@ -97,6 +138,7 @@ const Settings = () => {
           email_cta_text: data.email_cta_text,
           full_name: data.full_name,
           email: data.email,
+          subscription_status: data.subscription_status,
         });
       }
     } catch (error: any) {
@@ -104,6 +146,99 @@ const Settings = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchApiKeys = async () => {
+    setLoadingKeys(true);
+    try {
+      const { data, error } = await supabase
+        .from("api_keys")
+        .select("id, name, key_prefix, status, created_at, last_request_at, requests_today, rate_limit_per_day, expires_at")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setApiKeys(data || []);
+    } catch (error: any) {
+      console.error("Error fetching API keys:", error);
+    } finally {
+      setLoadingKeys(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchApiKeys();
+    }
+  }, [user]);
+
+  const createApiKey = async () => {
+    if (!newKeyName.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Name Required",
+        description: "Please enter a name for your API key."
+      });
+      return;
+    }
+
+    setCreatingKey(true);
+    try {
+      const { data, error } = await supabase.rpc("generate_api_key", {
+        p_name: newKeyName.trim()
+      });
+
+      if (error) throw error;
+
+      if (data && data[0]) {
+        setNewlyCreatedKey(data[0].full_key);
+        setShowNewKey(true);
+        setNewKeyName("");
+        fetchApiKeys();
+        toast({
+          title: "API Key Created",
+          description: "Your new API key has been generated. Copy it now - you won't be able to see it again!"
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to Create API Key",
+        description: error.message || "Could not create API key."
+      });
+    } finally {
+      setCreatingKey(false);
+    }
+  };
+
+  const revokeApiKey = async (keyId: string) => {
+    setDeletingKeyId(keyId);
+    try {
+      const { error } = await supabase
+        .from("api_keys")
+        .update({ status: "revoked", revoked_at: new Date().toISOString() })
+        .eq("id", keyId);
+
+      if (error) throw error;
+      
+      fetchApiKeys();
+      toast({
+        title: "API Key Revoked",
+        description: "The API key has been revoked and can no longer be used."
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to Revoke Key",
+        description: error.message || "Could not revoke API key."
+      });
+    } finally {
+      setDeletingKeyId(null);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied to clipboard" });
   };
 
   const saveProfile = async () => {
@@ -325,18 +460,22 @@ const Settings = () => {
         </div>
 
         <Tabs defaultValue="branding" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="branding" className="flex items-center gap-2">
               <Palette className="w-4 h-4" />
-              Branding
+              <span className="hidden sm:inline">Branding</span>
             </TabsTrigger>
             <TabsTrigger value="email" className="flex items-center gap-2">
               <Mail className="w-4 h-4" />
-              Email Template
+              <span className="hidden sm:inline">Email</span>
+            </TabsTrigger>
+            <TabsTrigger value="api-keys" className="flex items-center gap-2">
+              <Key className="w-4 h-4" />
+              <span className="hidden sm:inline">API Keys</span>
             </TabsTrigger>
             <TabsTrigger value="account" className="flex items-center gap-2">
               <User className="w-4 h-4" />
-              Account
+              <span className="hidden sm:inline">Account</span>
             </TabsTrigger>
           </TabsList>
 
@@ -517,6 +656,123 @@ const Settings = () => {
             </Card>
           </TabsContent>
 
+          <TabsContent value="api-keys" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Key className="w-5 h-5" />
+                      API Keys
+                    </CardTitle>
+                    <CardDescription>
+                      Manage API keys for programmatic access to your account
+                    </CardDescription>
+                  </div>
+                  {profile.subscription_status && profile.subscription_status !== 'free' ? (
+                    <Button onClick={() => setCreateKeyDialogOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Key
+                    </Button>
+                  ) : null}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {profile.subscription_status === 'free' || !profile.subscription_status ? (
+                  <div className="text-center py-8 space-y-4">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                      <AlertTriangle className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-foreground">Upgrade Required</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        API keys are available on paid plans. Upgrade to access the API.
+                      </p>
+                    </div>
+                  </div>
+                ) : loadingKeys ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Loading API keys...
+                  </div>
+                ) : apiKeys.length === 0 ? (
+                  <div className="text-center py-8 space-y-4">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                      <Key className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-foreground">No API Keys</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Create your first API key to start integrating with our API.
+                      </p>
+                    </div>
+                    <Button onClick={() => setCreateKeyDialogOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Your First Key
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {apiKeys.map((key) => (
+                      <div
+                        key={key.id}
+                        className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{key.name}</span>
+                            <Badge
+                              variant={key.status === 'active' ? 'default' : 'secondary'}
+                              className={key.status === 'active' ? 'bg-accent text-accent-foreground' : ''}
+                            >
+                              {key.status}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span className="font-mono">{key.key_prefix}•••••••</span>
+                            <span>Created {new Date(key.created_at).toLocaleDateString()}</span>
+                            {key.last_request_at && (
+                              <span>Last used {new Date(key.last_request_at).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {key.requests_today} / {key.rate_limit_per_day} requests today
+                          </div>
+                        </div>
+                        {key.status === 'active' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => revokeApiKey(key.id)}
+                            disabled={deletingKeyId === key.id}
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            {deletingKeyId === key.id ? "Revoking..." : "Revoke"}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">API Documentation</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground space-y-2">
+                <p>Use your API key in the <code className="bg-muted px-1 py-0.5 rounded">Authorization</code> header:</p>
+                <pre className="bg-muted p-3 rounded-lg overflow-x-auto text-xs">
+                  Authorization: Bearer vt_your_api_key_here
+                </pre>
+                <p className="text-xs">
+                  Rate limits: {profile.subscription_status === 'enterprise' ? '10,000' : '1,000'} requests per day per key.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="account" className="space-y-6">
             <Card>
               <CardHeader>
@@ -572,6 +828,84 @@ const Settings = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Create API Key Dialog */}
+      <Dialog open={createKeyDialogOpen} onOpenChange={setCreateKeyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+            <DialogDescription>
+              Give your API key a descriptive name to help you identify it later.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="key_name">Key Name</Label>
+              <Input
+                id="key_name"
+                placeholder="e.g., Production Server, Development"
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateKeyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={createApiKey} disabled={creatingKey}>
+              {creatingKey ? "Creating..." : "Create Key"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Newly Created Key Dialog */}
+      <Dialog open={!!newlyCreatedKey} onOpenChange={() => setNewlyCreatedKey(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-warning" />
+              Save Your API Key
+            </DialogTitle>
+            <DialogDescription>
+              This is the only time you'll see this key. Copy it now and store it securely.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex items-center gap-2">
+              <Input
+                type={showNewKey ? "text" : "password"}
+                value={newlyCreatedKey || ""}
+                readOnly
+                className="font-mono text-sm"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowNewKey(!showNewKey)}
+              >
+                {showNewKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => newlyCreatedKey && copyToClipboard(newlyCreatedKey)}
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Store this key securely. You won't be able to see it again.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setNewlyCreatedKey(null); setCreateKeyDialogOpen(false); }}>
+              I've Saved My Key
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
