@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent } from "@/lib/validateInput";
-import AppHeader from "@/components/AppHeader";
+import AppLayout from "@/components/AppLayout";
 import { Send, Bot, User, Loader2, CheckCircle, XCircle } from "lucide-react";
 
 interface Message {
@@ -391,20 +391,18 @@ const Interview = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <AppHeader 
-        rightContent={
-          <div className="text-right">
-            <div className="text-sm font-medium text-foreground">{interview.job_role}</div>
-            <div className="text-xs text-muted-foreground capitalize">
-              {interview.status.replace("_", " ")}
-            </div>
+    <AppLayout
+      fullHeight
+      headerRightContent={
+        <div className="text-right">
+          <div className="text-sm font-medium text-foreground">{interview.job_role}</div>
+          <div className="text-xs text-muted-foreground capitalize">
+            {interview.status.replace("_", " ")}
           </div>
-        }
-      />
-
-      {/* Chat Area */}
-      <main className="flex-1 container mx-auto px-4 py-6 flex flex-col max-w-3xl">
+        </div>
+      }
+      containerClassName="max-w-3xl"
+    >
         <div className="flex-1 overflow-y-auto space-y-4 mb-4">
           <AnimatePresence>
             {messages.map((message, index) => (
@@ -535,8 +533,7 @@ const Interview = () => {
             </Button>
           </div>
         )}
-      </main>
-    </div>
+      </AppLayout>
   );
 };
 

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent, validateNotes } from "@/lib/validateInput";
-import AppHeader from "@/components/AppHeader";
+import AppLayout from "@/components/AppLayout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -971,10 +971,7 @@ const VoiceInterview = () => {
   // Pre-interview setup screen
   if (showPreInterview && interview.status !== "completed") {
     return (
-      <div className="min-h-screen bg-background text-foreground overflow-auto">
-        <AppHeader />
-
-        <main className="container mx-auto px-4 py-12 max-w-2xl pb-24">
+      <AppLayout containerClassName="py-12 max-w-2xl pb-24">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1066,38 +1063,34 @@ const VoiceInterview = () => {
               You'll need to allow microphone and camera access
             </p>
           </motion.div>
-        </main>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <AppHeader 
-        rightContent={
-          <>
-            {/* Timer */}
-            {timeRemaining !== null && interview.status === "in_progress" && (
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                isTimeWarning ? "bg-destructive/20 text-destructive" : "bg-muted"
-              }`}>
-                {isTimeWarning && <AlertTriangle className="w-4 h-4" />}
-                <Clock className="w-4 h-4" />
-                <span className="font-mono font-bold">{formatTime(timeRemaining)}</span>
-              </div>
-            )}
-            
-            <div className="text-right">
-              <div className="text-sm font-medium">{interview.job_role}</div>
-              <div className="text-xs text-muted-foreground capitalize">
-                {interview.status === "in_progress" ? "In Progress" : interview.status}
-              </div>
+    <AppLayout
+      headerRightContent={
+        <>
+          {/* Timer */}
+          {timeRemaining !== null && interview.status === "in_progress" && (
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+              isTimeWarning ? "bg-destructive/20 text-destructive" : "bg-muted"
+            }`}>
+              {isTimeWarning && <AlertTriangle className="w-4 h-4" />}
+              <Clock className="w-4 h-4" />
+              <span className="font-mono font-bold">{formatTime(timeRemaining)}</span>
             </div>
-          </>
-        }
-      />
-
-      <main className="container mx-auto px-4 py-8">
+          )}
+          
+          <div className="text-right">
+            <div className="text-sm font-medium">{interview.job_role}</div>
+            <div className="text-xs text-muted-foreground capitalize">
+              {interview.status === "in_progress" ? "In Progress" : interview.status}
+            </div>
+          </div>
+        </>
+      }
+    >
         {isGeneratingSummary ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
@@ -1319,7 +1312,6 @@ const VoiceInterview = () => {
             </div>
           </div>
         )}
-      </main>
 
       {/* End Interview Confirmation Dialog */}
       <AlertDialog open={showEndConfirmDialog} onOpenChange={setShowEndConfirmDialog}>
@@ -1380,7 +1372,7 @@ const VoiceInterview = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </AppLayout>
   );
 };
 
