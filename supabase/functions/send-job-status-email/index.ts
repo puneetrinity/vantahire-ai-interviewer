@@ -1,8 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { Resend } from "https://esm.sh/resend@2.0.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +24,10 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
+    if (!BREVO_API_KEY) {
+      throw new Error("Missing BREVO_API_KEY secret");
+    }
+
     const { jobId, jobTitle, recruiterId, status, rejectionReason }: JobStatusEmailRequest = await req.json();
 
     console.log(`Sending job ${status} email for job ${jobId} to recruiter ${recruiterId}`);
@@ -54,11 +57,13 @@ const handler = async (req: Request): Promise<Response> => {
       ? `✅ Your job posting "${jobTitle}" has been approved!`
       : `❌ Your job posting "${jobTitle}" was not approved`;
 
-    const html = isApproved
+    const htmlContent = isApproved
       ? `
         <!DOCTYPE html>
         <html>
         <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -78,7 +83,7 @@ const handler = async (req: Request): Promise<Response> => {
               <p>Great news! Your job posting <strong>"${jobTitle}"</strong> has been reviewed and approved by our admin team.</p>
               <p>Your job is now live and candidates can start applying. You can manage your job posting and track applications from your dashboard.</p>
               <p style="text-align: center;">
-                <a href="${Deno.env.get("SUPABASE_URL")?.replace('.supabase.co', '.lovable.app')}/dashboard" class="button">Go to Dashboard</a>
+                <a href="https://vantahire.lovable.app/dashboard" class="button">Go to Dashboard</a>
               </p>
             </div>
             <div class="footer">
@@ -92,6 +97,8 @@ const handler = async (req: Request): Promise<Response> => {
         <!DOCTYPE html>
         <html>
         <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -118,7 +125,7 @@ const handler = async (req: Request): Promise<Response> => {
               ` : ''}
               <p>Please review the feedback and feel free to update your job posting and resubmit it for approval.</p>
               <p style="text-align: center;">
-                <a href="${Deno.env.get("SUPABASE_URL")?.replace('.supabase.co', '.lovable.app')}/dashboard" class="button">Edit Job Posting</a>
+                <a href="https://vantahire.lovable.app/dashboard" class="button">Edit Job Posting</a>
               </p>
             </div>
             <div class="footer">
@@ -129,16 +136,39 @@ const handler = async (req: Request): Promise<Response> => {
         </html>
       `;
 
-    const emailResponse = await resend.emails.send({
-      from: "Vantahire <onboarding@resend.dev>",
-      to: [recruiterEmail],
-      subject,
-      html,
+    // Send email using Brevo API
+    const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": BREVO_API_KEY,
+      },
+      body: JSON.stringify({
+        sender: {
+          name: "Vantahire",
+          email: "hello@vantahire.com",
+        },
+        to: [
+          {
+            email: recruiterEmail,
+            name: recruiterName,
+          },
+        ],
+        subject,
+        htmlContent,
+      }),
     });
 
-    console.log("Email sent successfully:", emailResponse);
+    if (!emailResponse.ok) {
+      const errorData = await emailResponse.json();
+      console.error("Brevo API error:", errorData);
+      throw new Error(errorData.message || "Failed to send email via Brevo");
+    }
 
-    return new Response(JSON.stringify({ success: true, emailResponse }), {
+    const responseData = await emailResponse.json();
+    console.log("Email sent successfully via Brevo:", responseData);
+
+    return new Response(JSON.stringify({ success: true, emailResponse: responseData }), {
       status: 200,
       headers: {
         "Content-Type": "application/json",

@@ -1,8 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@2.0.0";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY") as string);
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +27,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
+    if (!BREVO_API_KEY) {
+      throw new Error("Missing BREVO_API_KEY secret");
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
@@ -154,61 +157,86 @@ serve(async (req: Request): Promise<Response> => {
       const userName = profile.full_name || "there";
 
       try {
-        const emailResponse = await resend.emails.send({
-          from: "VantaHire <onboarding@resend.dev>",
-          to: [profile.email],
-          subject: "Complete your VantaHire setup - Just a few steps left! 🚀",
-          html: `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            </head>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                <h1 style="color: white; margin: 0; font-size: 24px;">VantaHire</h1>
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
+              <h1 style="color: white; margin: 0; font-size: 24px;">Vantahire</h1>
+            </div>
+            
+            <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
+              <h2 style="color: #1f2937; margin-top: 0;">Hey ${userName}! 👋</h2>
+              
+              <p style="color: #4b5563;">
+                We noticed you haven't finished setting up your Vantahire account yet. 
+                You're just a few steps away from running AI-powered interviews!
+              </p>
+              
+              <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
+                <h3 style="color: #1f2937; margin-top: 0;">Here's what's left to do:</h3>
+                <ul style="color: #4b5563; padding-left: 20px;">
+                  ${pendingTasksList}
+                </ul>
               </div>
               
-              <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
-                <h2 style="color: #1f2937; margin-top: 0;">Hey ${userName}! 👋</h2>
-                
-                <p style="color: #4b5563;">
-                  We noticed you haven't finished setting up your VantaHire account yet. 
-                  You're just a few steps away from running AI-powered interviews!
-                </p>
-                
-                <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
-                  <h3 style="color: #1f2937; margin-top: 0;">Here's what's left to do:</h3>
-                  <ul style="color: #4b5563; padding-left: 20px;">
-                    ${pendingTasksList}
-                  </ul>
-                </div>
-                
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="https://vantahire.lovable.app/dashboard" 
-                     style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">
-                    Complete Setup →
-                  </a>
-                </div>
-                
-                <p style="color: #6b7280; font-size: 14px;">
-                  Need help? Just reply to this email and we'll get back to you.
-                </p>
-                
-                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-                
-                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-                  You're receiving this because you signed up for VantaHire.<br>
-                  © ${new Date().getFullYear()} VantaHire. All rights reserved.
-                </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="https://vantahire.lovable.app/dashboard" 
+                   style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">
+                  Complete Setup →
+                </a>
               </div>
-            </body>
-            </html>
-          `,
+              
+              <p style="color: #6b7280; font-size: 14px;">
+                Need help? Just reply to this email and we'll get back to you.
+              </p>
+              
+              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+              
+              <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                You're receiving this because you signed up for Vantahire.<br>
+                © ${new Date().getFullYear()} Vantahire. All rights reserved.
+              </p>
+            </div>
+          </body>
+          </html>
+        `;
+
+        // Send email using Brevo API
+        const emailResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "api-key": BREVO_API_KEY,
+          },
+          body: JSON.stringify({
+            sender: {
+              name: "Vantahire",
+              email: "hello@vantahire.com",
+            },
+            to: [
+              {
+                email: profile.email,
+                name: userName,
+              },
+            ],
+            subject: "Complete your Vantahire setup - Just a few steps left! 🚀",
+            htmlContent,
+          }),
         });
 
-        console.log(`Email sent to ${profile.email}:`, emailResponse);
+        if (!emailResponse.ok) {
+          const errorData = await emailResponse.json();
+          console.error("Brevo API error:", errorData);
+          throw new Error(errorData.message || "Failed to send email via Brevo");
+        }
+
+        const responseData = await emailResponse.json();
+        console.log(`Email sent to ${profile.email} via Brevo:`, responseData);
 
         // Record that we sent a reminder
         const { error: insertError } = await supabase
