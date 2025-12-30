@@ -1,4 +1,4 @@
-import { Zap } from "lucide-react";
+import vantahireLogo from "@/assets/vantahire-logo.jpg";
 
 const Footer = () => {
   const links = {
@@ -15,10 +15,8 @@ const Footer = () => {
           {/* Brand */}
           <div className="md:col-span-1">
             <a href="/" className="flex items-center gap-2 mb-4">
-              <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <span className="text-xl font-bold">InterviewAI</span>
+              <img src={vantahireLogo} alt="VantaHire" className="w-9 h-9 rounded-lg object-cover" />
+              <span className="text-xl font-bold">VantaHire</span>
             </a>
             <p className="text-primary-foreground/60 text-sm">
               AI-powered interviews that integrate seamlessly with your ATS.
@@ -48,7 +46,7 @@ const Footer = () => {
         {/* Bottom */}
         <div className="pt-8 border-t border-primary-foreground/10 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-primary-foreground/60 text-sm">
-            © 2024 InterviewAI. All rights reserved.
+            © 2024 VantaHire. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a href="#" className="text-primary-foreground/60 hover:text-primary-foreground transition-colors text-sm">
