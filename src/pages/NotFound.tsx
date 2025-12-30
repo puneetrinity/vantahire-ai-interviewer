@@ -1,8 +1,10 @@
-import { useLocation, Link } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Home, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
+import AppHeader from "@/components/AppHeader";
 
 const NotFound = () => {
   const location = useLocation();
@@ -13,19 +15,7 @@ const NotFound = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <img 
-              src="/vantahire-logo-2026.jpg" 
-              alt="Vantahire" 
-              className="w-9 h-9 rounded-lg object-cover"
-            />
-            <span className="text-xl font-bold text-foreground">Vantahire AI Interview</span>
-          </Link>
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="container mx-auto px-4 py-8 flex items-center justify-center min-h-[calc(100vh-64px)]">
         <motion.div

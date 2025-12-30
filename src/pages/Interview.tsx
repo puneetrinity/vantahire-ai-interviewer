@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent } from "@/lib/validateInput";
-import { Zap, Send, Bot, User, Loader2, CheckCircle, XCircle } from "lucide-react";
+import AppHeader from "@/components/AppHeader";
+import { Send, Bot, User, Loader2, CheckCircle, XCircle } from "lucide-react";
 
 interface Message {
   role: "assistant" | "user";
@@ -391,25 +392,16 @@ const Interview = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img 
-              src="/vantahire-logo-2026.jpg" 
-              alt="Vantahire" 
-              className="w-9 h-9 rounded-lg object-cover"
-            />
-            <span className="text-xl font-bold text-foreground">Vantahire AI Interview</span>
-          </div>
+      <AppHeader 
+        rightContent={
           <div className="text-right">
             <div className="text-sm font-medium text-foreground">{interview.job_role}</div>
             <div className="text-xs text-muted-foreground capitalize">
               {interview.status.replace("_", " ")}
             </div>
           </div>
-        </div>
-      </header>
+        }
+      />
 
       {/* Chat Area */}
       <main className="flex-1 container mx-auto px-4 py-6 flex flex-col max-w-3xl">

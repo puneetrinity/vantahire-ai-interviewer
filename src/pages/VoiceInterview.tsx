@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent, validateNotes } from "@/lib/validateInput";
+import AppHeader from "@/components/AppHeader";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +21,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { 
-  Zap, 
   Mic, 
   MicOff, 
   Video, 
@@ -972,18 +972,7 @@ const VoiceInterview = () => {
   if (showPreInterview && interview.status !== "completed") {
     return (
       <div className="min-h-screen bg-background text-foreground overflow-auto">
-        <header className="border-b border-border bg-card">
-          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <img 
-                src="/vantahire-logo-2026.jpg" 
-                alt="Vantahire" 
-                className="w-9 h-9 rounded-lg object-cover"
-              />
-              <span className="text-xl font-bold">Vantahire AI Interview</span>
-            </div>
-          </div>
-        </header>
+        <AppHeader />
 
         <main className="container mx-auto px-4 py-12 max-w-2xl pb-24">
           <motion.div
@@ -1084,19 +1073,9 @@ const VoiceInterview = () => {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header with Timer */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img 
-              src="/vantahire-logo-2026.jpg" 
-              alt="Vantahire" 
-              className="w-9 h-9 rounded-lg object-cover"
-            />
-            <span className="text-xl font-bold">Vantahire AI Interview</span>
-          </div>
-          
-          <div className="flex items-center gap-4">
+      <AppHeader 
+        rightContent={
+          <>
             {/* Timer */}
             {timeRemaining !== null && interview.status === "in_progress" && (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
@@ -1114,9 +1093,9 @@ const VoiceInterview = () => {
                 {interview.status === "in_progress" ? "In Progress" : interview.status}
               </div>
             </div>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="container mx-auto px-4 py-8">
         {isGeneratingSummary ? (
