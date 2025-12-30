@@ -230,6 +230,59 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_messages: {
+        Row: {
+          candidate_phone: string
+          created_at: string
+          delivered_at: string | null
+          error_message: string | null
+          failed_at: string | null
+          id: string
+          interview_id: string
+          message_id: string | null
+          read_at: string | null
+          sent_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          candidate_phone: string
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          interview_id: string
+          message_id?: string | null
+          read_at?: string | null
+          sent_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          candidate_phone?: string
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          interview_id?: string
+          message_id?: string | null
+          read_at?: string | null
+          sent_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_interview_id_fkey"
+            columns: ["interview_id"]
+            isOneToOne: false
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

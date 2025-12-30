@@ -1,10 +1,12 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import EmailPreview from "@/components/EmailPreview";
 import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
+import WhatsAppStatusBadge from "@/components/WhatsAppStatusBadge";
+import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -125,6 +127,10 @@ const Dashboard = () => {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Get interview IDs for WhatsApp status tracking
+  const interviewIds = useMemo(() => interviews.map(i => i.id), [interviews]);
+  const { whatsappMessages } = useWhatsAppStatus(interviewIds);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -962,6 +968,15 @@ const Dashboard = () => {
                     <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(interview.status)}`}>
                       {interview.status.replace("_", " ")}
                     </span>
+                    {whatsappMessages[interview.id] && (
+                      <WhatsAppStatusBadge
+                        status={whatsappMessages[interview.id].status}
+                        phone={whatsappMessages[interview.id].candidate_phone}
+                        sentAt={whatsappMessages[interview.id].sent_at}
+                        deliveredAt={whatsappMessages[interview.id].delivered_at || undefined}
+                        readAt={whatsappMessages[interview.id].read_at || undefined}
+                      />
+                    )}
                     <div className="flex items-center gap-1">
                       {interview.status === "completed" && (
                         <>

@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.send-whatsapp-invite]
 verify_jwt = false
+
+[functions.aisensy-webhook]
+verify_jwt = false

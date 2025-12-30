@@ -161,14 +161,41 @@ const handler = async (req: Request): Promise<Response> => {
 
     const responseData = await whatsappResponse.json();
     
+    // Extract message ID from Aisensy response
+    const messageId = responseData?.data?.messageId || responseData?.messageId || null;
+    
     if (!whatsappResponse.ok) {
       console.error("Aisensy API error:", responseData);
+      
+      // Store failed message in tracking table
+      await supabaseAdmin.from("whatsapp_messages").insert({
+        interview_id: interviewId,
+        candidate_phone: cleanPhone,
+        message_id: messageId,
+        status: "failed",
+        failed_at: new Date().toISOString(),
+        error_message: responseData.message || "Failed to send WhatsApp message"
+      });
+      
       throw new Error(responseData.message || "Failed to send WhatsApp message");
     }
 
     console.log("WhatsApp message sent successfully via Aisensy:", responseData);
+    
+    // Store successful message in tracking table
+    const { error: insertError } = await supabaseAdmin.from("whatsapp_messages").insert({
+      interview_id: interviewId,
+      candidate_phone: cleanPhone,
+      message_id: messageId,
+      status: "sent",
+      sent_at: new Date().toISOString()
+    });
+    
+    if (insertError) {
+      console.error("Failed to store WhatsApp message tracking:", insertError);
+    }
 
-    return new Response(JSON.stringify({ success: true, data: responseData }), {
+    return new Response(JSON.stringify({ success: true, data: responseData, messageId }), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
