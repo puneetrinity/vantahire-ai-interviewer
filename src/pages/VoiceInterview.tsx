@@ -41,7 +41,9 @@ import {
   MessageSquare,
   Paperclip,
   RefreshCw,
-  WifiOff
+  WifiOff,
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
 
 interface Interview {
@@ -83,6 +85,19 @@ const VoiceInterview = () => {
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  
+  // Device test states
+  const [isTestingDevices, setIsTestingDevices] = useState(false);
+  const [deviceTestPassed, setDeviceTestPassed] = useState(false);
+  const [cameraWorking, setCameraWorking] = useState<boolean | null>(null);
+  const [micWorking, setMicWorking] = useState<boolean | null>(null);
+  const [micLevel, setMicLevel] = useState(0);
+  const testVideoRef = useRef<HTMLVideoElement>(null);
+  const testStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -351,6 +366,92 @@ const VoiceInterview = () => {
       setError("Failed to load interview");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Device test functions
+  const startDeviceTest = async () => {
+    setIsTestingDevices(true);
+    setCameraWorking(null);
+    setMicWorking(null);
+    setMicLevel(0);
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+        audio: true,
+      });
+      
+      testStreamRef.current = stream;
+      
+      // Set up video preview
+      if (testVideoRef.current) {
+        testVideoRef.current.srcObject = stream;
+        testVideoRef.current.muted = true;
+      }
+      setCameraWorking(true);
+      
+      // Set up audio level monitoring
+      audioContextRef.current = new AudioContext();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      source.connect(analyserRef.current);
+      
+      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+      
+      const updateMicLevel = () => {
+        if (analyserRef.current) {
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const normalizedLevel = Math.min(100, (average / 128) * 100);
+          setMicLevel(normalizedLevel);
+          
+          if (normalizedLevel > 5) {
+            setMicWorking(true);
+          }
+        }
+        animationFrameRef.current = requestAnimationFrame(updateMicLevel);
+      };
+      
+      updateMicLevel();
+      
+    } catch (error) {
+      console.error("Error accessing devices:", error);
+      setCameraWorking(false);
+      setMicWorking(false);
+      toast({
+        variant: "destructive",
+        title: "Device Error",
+        description: "Could not access camera or microphone. Please check permissions.",
+      });
+    }
+  };
+  
+  const stopDeviceTest = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    if (testStreamRef.current) {
+      testStreamRef.current.getTracks().forEach(track => track.stop());
+      testStreamRef.current = null;
+    }
+    
+    if (testVideoRef.current) {
+      testVideoRef.current.srcObject = null;
+    }
+    
+    setIsTestingDevices(false);
+    
+    if (cameraWorking && micWorking) {
+      setDeviceTestPassed(true);
     }
   };
 
@@ -1051,6 +1152,102 @@ const VoiceInterview = () => {
               <p className="text-muted-foreground">
                 💡 There are no trick questions. Take a deep breath, stay relaxed, and do your best.
               </p>
+            </div>
+
+            {/* Device Test Section */}
+            <div className="bg-card rounded-2xl border border-border p-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                🎥 Test Your Camera & Microphone
+              </h3>
+              
+              {!isTestingDevices && !deviceTestPassed ? (
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Click the button below to verify your camera and microphone are working properly.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={startDeviceTest}
+                    className="w-full"
+                  >
+                    <Video className="w-4 h-4 mr-2" />
+                    Start Device Test
+                  </Button>
+                </div>
+              ) : isTestingDevices ? (
+                <div className="space-y-4">
+                  {/* Camera Preview */}
+                  <div className="relative aspect-video bg-muted/30 rounded-xl overflow-hidden border border-border">
+                    <video
+                      ref={testVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 left-2 flex items-center gap-2 px-2 py-1 rounded-lg bg-background/80 backdrop-blur-sm">
+                      {cameraWorking === true ? (
+                        <CheckCircle2 className="w-4 h-4 text-accent" />
+                      ) : cameraWorking === false ? (
+                        <XCircle className="w-4 h-4 text-destructive" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      )}
+                      <span className="text-xs font-medium">Camera</span>
+                    </div>
+                  </div>
+                  
+                  {/* Microphone Level */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {micWorking === true ? (
+                          <CheckCircle2 className="w-4 h-4 text-accent" />
+                        ) : micWorking === false ? (
+                          <XCircle className="w-4 h-4 text-destructive" />
+                        ) : (
+                          <Mic className="w-4 h-4 text-muted-foreground" />
+                        )}
+                        <span className="text-sm font-medium">Microphone</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {micWorking ? "Working" : "Speak to test..."}
+                      </span>
+                    </div>
+                    <div className="h-3 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-accent transition-all duration-100 rounded-full"
+                        style={{ width: `${micLevel}%` }}
+                      />
+                    </div>
+                  </div>
+                  
+                  <Button
+                    variant="outline"
+                    onClick={stopDeviceTest}
+                    className="w-full"
+                  >
+                    {cameraWorking && micWorking ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2 text-accent" />
+                        Devices Working - Continue
+                      </>
+                    ) : (
+                      "Stop Test"
+                    )}
+                  </Button>
+                </div>
+              ) : deviceTestPassed ? (
+                <div className="flex items-center gap-3 p-4 bg-accent/10 rounded-xl border border-accent/20">
+                  <CheckCircle2 className="w-6 h-6 text-accent" />
+                  <div>
+                    <p className="font-medium text-accent">Devices Ready</p>
+                    <p className="text-sm text-muted-foreground">
+                      Your camera and microphone are working properly.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* Confirmation Checkbox */}
