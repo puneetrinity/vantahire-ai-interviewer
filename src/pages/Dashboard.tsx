@@ -13,6 +13,7 @@ import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import OnboardingTour from "@/components/OnboardingTour";
 import OnboardingProgress from "@/components/OnboardingProgress";
 import InterviewScreenshotsGallery from "@/components/InterviewScreenshotsGallery";
+import CandidateFormFields from "@/components/CandidateFormFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,8 +119,9 @@ const Dashboard = () => {
   const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
   const [transcriptMessages, setTranscriptMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [newInterview, setNewInterview] = useState({
-    candidateEmail: "",
-    candidateName: "",
+    email: "",
+    name: "",
+    phone: "",
     jobRole: ""
   });
   const [creating, setCreating] = useState(false);
@@ -361,8 +363,8 @@ const Dashboard = () => {
         .from("interviews")
         .insert({
           recruiter_id: user.id,
-          candidate_email: newInterview.candidateEmail,
-          candidate_name: newInterview.candidateName || null,
+          candidate_email: newInterview.email,
+          candidate_name: newInterview.name || null,
           job_role: newInterview.jobRole,
           status: "pending",
           time_limit_minutes: 30
@@ -388,12 +390,13 @@ const Dashboard = () => {
             Authorization: `Bearer ${accessToken}`
           },
           body: {
-            candidateEmail: newInterview.candidateEmail,
-            candidateName: newInterview.candidateName || null,
+            candidateEmail: newInterview.email,
+            candidateName: newInterview.name || null,
             jobRole: newInterview.jobRole,
             interviewId: data.id,
             interviewUrl,
-            recruiterId: user.id
+            recruiterId: user.id,
+            candidatePhone: newInterview.phone
           }
         });
 
@@ -415,7 +418,7 @@ const Dashboard = () => {
         } else {
           toast({
             title: "Interview Created & Email Sent",
-            description: `Invitation email sent to ${newInterview.candidateEmail}`
+            description: `Invitation email sent to ${newInterview.email}`
           });
         }
       } catch (emailErr: any) {
@@ -436,7 +439,7 @@ const Dashboard = () => {
 
       setInterviews([data as Interview, ...interviews]);
       setCreateDialogOpen(false);
-      setNewInterview({ candidateEmail: "", candidateName: "", jobRole: "" });
+      setNewInterview({ email: "", name: "", phone: "", jobRole: "" });
     } catch (error: any) {
       console.error("Error creating interview:", error);
       toast({
@@ -895,35 +898,26 @@ const Dashboard = () => {
                 <DialogTrigger asChild>
                   <Button variant="hero">
                     <Plus className="w-4 h-4 mr-2" />
-                    New Interview
+                    Add Candidate
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Create New Interview</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Users className="w-5 h-5" />
+                      Add Candidate
+                    </DialogTitle>
+                    <DialogDescription>
+                      Add a candidate to interview for <strong>{profile.company_name || "Recruiter"}</strong>
+                    </DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleCreateInterview} className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="candidateEmail">Candidate Email *</Label>
-                      <Input
-                        id="candidateEmail"
-                        type="email"
-                        placeholder="candidate@email.com"
-                        value={newInterview.candidateEmail}
-                        onChange={(e) => setNewInterview({...newInterview, candidateEmail: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="candidateName">Candidate Name</Label>
-                      <Input
-                        id="candidateName"
-                        type="text"
-                        placeholder="John Doe"
-                        value={newInterview.candidateName}
-                        onChange={(e) => setNewInterview({...newInterview, candidateName: e.target.value})}
-                      />
-                    </div>
+                    <CandidateFormFields
+                      formData={{ email: newInterview.email, name: newInterview.name, phone: newInterview.phone }}
+                      onChange={(data) => setNewInterview({ ...newInterview, email: data.email, name: data.name, phone: data.phone })}
+                      idPrefix="new-interview"
+                      disabled={creating}
+                    />
                     <div className="space-y-2">
                       <Label htmlFor="jobRole">Job Role *</Label>
                       <Input
@@ -933,11 +927,17 @@ const Dashboard = () => {
                         value={newInterview.jobRole}
                         onChange={(e) => setNewInterview({...newInterview, jobRole: e.target.value})}
                         required
+                        disabled={creating}
                       />
                     </div>
-                    <Button type="submit" variant="hero" className="w-full" disabled={creating}>
-                      {creating ? "Creating..." : "Create Interview"}
-                    </Button>
+                    <div className="flex gap-2 pt-2">
+                      <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)} className="flex-1" disabled={creating}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" variant="hero" className="flex-1" disabled={creating || !newInterview.email || !newInterview.name || !newInterview.phone || !newInterview.jobRole}>
+                        {creating ? "Adding..." : "Add & Send Invite"}
+                      </Button>
+                    </div>
                   </form>
                 </DialogContent>
               </Dialog>
