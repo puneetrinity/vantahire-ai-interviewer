@@ -62,7 +62,32 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
   const { toast } = useToast();
+
+  const sendJobStatusEmail = async (job: Job, status: "approved" | "rejected", reason?: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      await supabase.functions.invoke("send-job-status-email", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: {
+          jobId: job.id,
+          jobTitle: job.title,
+          recruiterId: job.recruiter_id,
+          status,
+          rejectionReason: reason
+        }
+      });
+      console.log(`Job status email sent for ${job.title}`);
+    } catch (error) {
+      console.error("Failed to send job status email:", error);
+      // Don't throw - email is secondary to the status update
+    }
+  };
 
   useEffect(() => {
     fetchJobs();
@@ -110,7 +135,8 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
     }
   };
 
-  const handleApproveJob = async (jobId: string) => {
+  const handleApproveJob = async (job: Job) => {
+    setSendingEmail(true);
     try {
       const { error } = await supabase
         .from('jobs')
@@ -118,17 +144,20 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
           approval_status: 'approved',
           approved_at: new Date().toISOString()
         })
-        .eq('id', jobId);
+        .eq('id', job.id);
 
       if (error) throw error;
 
       setJobs(prev => prev.map(j => 
-        j.id === jobId ? { ...j, approval_status: 'approved' } : j
+        j.id === job.id ? { ...j, approval_status: 'approved' } : j
       ));
+
+      // Send email notification
+      await sendJobStatusEmail(job, 'approved');
 
       toast({
         title: "Job approved",
-        description: "The job posting has been approved"
+        description: "The job posting has been approved and the recruiter has been notified"
       });
       onRefresh();
     } catch (error) {
@@ -138,11 +167,14 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
         title: "Error",
         description: "Failed to approve job"
       });
+    } finally {
+      setSendingEmail(false);
     }
   };
 
   const handleRejectJob = async () => {
     if (!selectedJob || !rejectionReason.trim()) return;
+    setSendingEmail(true);
 
     try {
       const { error } = await supabase
@@ -159,9 +191,12 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
         j.id === selectedJob.id ? { ...j, approval_status: 'rejected', rejection_reason: rejectionReason } : j
       ));
 
+      // Send email notification
+      await sendJobStatusEmail(selectedJob, 'rejected', rejectionReason);
+
       toast({
         title: "Job rejected",
-        description: "The job posting has been rejected"
+        description: "The job posting has been rejected and the recruiter has been notified"
       });
       
       setRejectDialogOpen(false);
@@ -175,6 +210,8 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
         title: "Error",
         description: "Failed to reject job"
       });
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -271,7 +308,8 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
                           variant="ghost" 
                           size="sm" 
                           className="text-green-500 hover:text-green-600"
-                          onClick={() => handleApproveJob(job.id)}
+                          onClick={() => handleApproveJob(job)}
+                          disabled={sendingEmail}
                         >
                           <Check className="w-4 h-4" />
                         </Button>
