@@ -971,8 +971,8 @@ const VoiceInterview = () => {
   // Pre-interview setup screen
   if (showPreInterview && interview.status !== "completed") {
     return (
-      <div className="min-h-screen bg-foreground text-primary-foreground overflow-auto">
-        <header className="border-b border-primary-foreground/10">
+      <div className="min-h-screen bg-background text-foreground overflow-auto">
+        <header className="border-b border-border bg-card">
           <div className="container mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <img 
@@ -993,22 +993,22 @@ const VoiceInterview = () => {
           >
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-2">Welcome to Your Interview</h1>
-              <p className="text-primary-foreground/60">
-                Position: <span className="font-medium text-primary-foreground">{interview.job_role}</span>
+              <p className="text-muted-foreground">
+                Position: <span className="font-medium text-foreground">{interview.job_role}</span>
               </p>
-              <div className="flex items-center justify-center gap-2 mt-4 text-primary-foreground/60">
+              <div className="flex items-center justify-center gap-2 mt-4 text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span>Time limit: {interview.time_limit_minutes || DEFAULT_TIME_LIMIT} minutes</span>
               </div>
             </div>
 
             {/* Document Upload Section */}
-            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
+            <div className="bg-card rounded-2xl border border-border p-6">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Upload Documents (Optional)
               </h3>
-              <p className="text-sm text-primary-foreground/60 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Upload your resume or job description for better context
               </p>
               
@@ -1024,7 +1024,7 @@ const VoiceInterview = () => {
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
-                className="w-full border-primary-foreground/20 hover:bg-primary-foreground/10"
+                className="w-full"
               >
                 {isUploading ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -1040,19 +1040,19 @@ const VoiceInterview = () => {
             </div>
 
             {/* Notes Section */}
-            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6">
+            <div className="bg-card rounded-2xl border border-border p-6">
               <h3 className="text-lg font-semibold mb-4">Additional Notes</h3>
-              <p className="text-sm text-primary-foreground/60 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Paste any additional information you'd like the interviewer to consider (max 5000 characters)
               </p>
               <Textarea
                 value={candidateNotes}
                 onChange={(e) => setCandidateNotes(e.target.value)}
                 placeholder="Paste your resume text, job description, or any notes here..."
-                className="min-h-[150px] bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40"
+                className="min-h-[150px] bg-background border-border text-foreground placeholder:text-muted-foreground"
                 maxLength={5000}
               />
-              <p className="text-xs text-primary-foreground/40 mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 {candidateNotes.length}/5000 characters
               </p>
             </div>
@@ -1073,7 +1073,7 @@ const VoiceInterview = () => {
               Start Interview
             </Button>
 
-            <p className="text-center text-sm text-primary-foreground/40">
+            <p className="text-center text-sm text-muted-foreground">
               You'll need to allow microphone and camera access
             </p>
           </motion.div>
@@ -1083,9 +1083,9 @@ const VoiceInterview = () => {
   }
 
   return (
-    <div className="min-h-screen bg-foreground text-primary-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header with Timer */}
-      <header className="border-b border-primary-foreground/10">
+      <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img 
@@ -1100,7 +1100,7 @@ const VoiceInterview = () => {
             {/* Timer */}
             {timeRemaining !== null && interview.status === "in_progress" && (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                isTimeWarning ? "bg-destructive/20 text-destructive" : "bg-primary-foreground/10"
+                isTimeWarning ? "bg-destructive/20 text-destructive" : "bg-muted"
               }`}>
                 {isTimeWarning && <AlertTriangle className="w-4 h-4" />}
                 <Clock className="w-4 h-4" />
@@ -1110,7 +1110,7 @@ const VoiceInterview = () => {
             
             <div className="text-right">
               <div className="text-sm font-medium">{interview.job_role}</div>
-              <div className="text-xs text-primary-foreground/60 capitalize">
+              <div className="text-xs text-muted-foreground capitalize">
                 {interview.status === "in_progress" ? "In Progress" : interview.status}
               </div>
             </div>
@@ -1123,7 +1123,7 @@ const VoiceInterview = () => {
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
             <h2 className="text-xl font-semibold mb-2">Generating Interview Summary</h2>
-            <p className="text-primary-foreground/60">Please wait while we analyze your interview...</p>
+            <p className="text-muted-foreground">Please wait while we analyze your interview...</p>
           </div>
         ) : interview.status === "completed" ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -1131,11 +1131,11 @@ const VoiceInterview = () => {
               <FileText className="w-10 h-10 text-accent" />
             </div>
             <h2 className="text-2xl font-bold mb-2">Interview Completed</h2>
-            <p className="text-primary-foreground/60 mb-6 max-w-md">
+            <p className="text-muted-foreground mb-6 max-w-md">
               Thank you for completing your interview. The recruiter has been notified and will review your responses and AI summary.
             </p>
             {redirectCountdown !== null && redirectCountdown > 0 && (
-              <p className="text-sm text-primary-foreground/40">
+              <p className="text-sm text-muted-foreground">
                 Redirecting to dashboard in {redirectCountdown} second{redirectCountdown !== 1 ? 's' : ''}...
               </p>
             )}
@@ -1149,7 +1149,7 @@ const VoiceInterview = () => {
                 className={`p-6 rounded-2xl border ${
                   isSpeaking 
                     ? "border-primary bg-primary/10" 
-                    : "border-primary-foreground/10 bg-primary-foreground/5"
+                    : "border-border bg-card"
                 } transition-all`}
               >
                 <div className="flex items-center gap-4">
@@ -1160,7 +1160,7 @@ const VoiceInterview = () => {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold">AI Interviewer</h3>
-                    <p className="text-sm text-primary-foreground/60">
+                    <p className="text-sm text-muted-foreground">
                       {!isConnected 
                         ? "Waiting to start..." 
                         : isSpeaking 
@@ -1172,7 +1172,7 @@ const VoiceInterview = () => {
               </motion.div>
 
               {/* Candidate Video */}
-              <div className="relative aspect-video bg-primary-foreground/5 rounded-2xl overflow-hidden border border-primary-foreground/10">
+              <div className="relative aspect-video bg-muted/30 rounded-2xl overflow-hidden border border-border">
                 {videoEnabled ? (
                   <video
                     ref={videoRef}
@@ -1183,13 +1183,13 @@ const VoiceInterview = () => {
                   />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-24 h-24 rounded-full bg-primary-foreground/10 flex items-center justify-center">
-                      <User className="w-12 h-12 text-primary-foreground/40" />
+                    <div className="w-24 h-24 rounded-full bg-background/80 flex items-center justify-center">
+                      <User className="w-12 h-12 text-muted-foreground" />
                     </div>
                   </div>
                 )}
 
-                <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-foreground/80 backdrop-blur-sm">
+                <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-background/80 backdrop-blur-sm">
                   <span className="text-sm font-medium">
                     Candidate
                   </span>
@@ -1210,7 +1210,7 @@ const VoiceInterview = () => {
                   variant="ghost"
                   size="lg"
                   onClick={toggleVideo}
-                  className={`rounded-full w-14 h-14 ${!videoEnabled ? "bg-destructive text-destructive-foreground" : "bg-primary-foreground/10"}`}
+                  className={`rounded-full w-14 h-14 ${!videoEnabled ? "bg-destructive text-destructive-foreground" : "bg-muted"}`}
                 >
                   {videoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
                 </Button>
@@ -1243,7 +1243,7 @@ const VoiceInterview = () => {
                 )}
 
                 <div className={`rounded-full w-14 h-14 flex items-center justify-center ${
-                  isConnected ? "bg-accent text-accent-foreground" : "bg-primary-foreground/10"
+                  isConnected ? "bg-accent text-accent-foreground" : "bg-muted"
                 }`}>
                   {isConnected ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
                 </div>
@@ -1251,14 +1251,14 @@ const VoiceInterview = () => {
             </div>
 
             {/* Transcript Panel */}
-            <div className="bg-primary-foreground/5 rounded-2xl border border-primary-foreground/10 p-6 flex flex-col">
+            <div className="bg-card rounded-2xl border border-border p-6 flex flex-col">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5" />
                 Live Transcript
               </h3>
               <div className="space-y-4 max-h-[400px] overflow-y-auto flex-1 mb-4">
                 {transcript.length === 0 ? (
-                  <p className="text-sm text-primary-foreground/40 text-center py-8">
+                  <p className="text-sm text-muted-foreground text-center py-8">
                     Transcript will appear here when the interview starts...
                   </p>
                 ) : (
@@ -1270,11 +1270,11 @@ const VoiceInterview = () => {
                         animate={{ opacity: 1, y: 0 }}
                         className={`p-3 rounded-lg ${
                           item.role === "user"
-                            ? "bg-primary/20 ml-4"
-                            : "bg-primary-foreground/10 mr-4"
+                            ? "bg-primary/10 ml-4"
+                            : "bg-muted mr-4"
                         }`}
                       >
-                        <p className="text-xs text-primary-foreground/60 mb-1">
+                        <p className="text-xs text-muted-foreground mb-1">
                           {item.role === "user" ? "You" : "AI Interviewer"}
                         </p>
                         <p className="text-sm">{item.text}</p>
@@ -1287,8 +1287,8 @@ const VoiceInterview = () => {
 
               {/* Chat Input */}
               {isConnected && (
-                <div className="border-t border-primary-foreground/10 pt-4">
-                  <p className="text-xs text-primary-foreground/40 mb-2">
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs text-muted-foreground mb-2">
                     Having audio issues? Type your response below:
                   </p>
                   <div className="flex gap-2">
@@ -1304,7 +1304,7 @@ const VoiceInterview = () => {
                       size="icon"
                       onClick={() => chatFileInputRef.current?.click()}
                       disabled={isUploading}
-                      className="shrink-0 text-primary-foreground/60 hover:text-primary-foreground hover:bg-primary-foreground/10"
+                      className="shrink-0"
                       title="Share resume or JD"
                     >
                       {isUploading ? (
@@ -1319,7 +1319,7 @@ const VoiceInterview = () => {
                       onKeyDown={handleKeyPress}
                       placeholder="Type your answer..."
                       disabled={isSendingMessage}
-                      className="bg-transparent border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/40 flex-1"
+                      className="bg-background border-border text-foreground placeholder:text-muted-foreground flex-1"
                       maxLength={10000}
                     />
                     <Button
