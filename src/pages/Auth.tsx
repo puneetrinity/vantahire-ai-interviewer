@@ -23,14 +23,37 @@ const Auth = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (session) {
-          navigate("/dashboard");
+          // Defer the role check to avoid Supabase deadlock
+          setTimeout(async () => {
+            const { data: roleData } = await supabase
+              .from('user_roles')
+              .select('role')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+            
+            if (roleData?.role === 'admin') {
+              navigate("/admin");
+            } else {
+              navigate("/dashboard");
+            }
+          }, 0);
         }
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        navigate("/dashboard");
+        const { data: roleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        
+        if (roleData?.role === 'admin') {
+          navigate("/admin");
+        } else {
+          navigate("/dashboard");
+        }
       }
     });
 
