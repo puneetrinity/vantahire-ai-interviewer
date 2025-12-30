@@ -438,7 +438,7 @@ const Settings = () => {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <Mail className="w-5 h-5" />
-                      Email Template
+                      Email Copy
                     </CardTitle>
                     <CardDescription>
                       Customize the invitation emails sent to candidates
@@ -456,55 +456,61 @@ const Settings = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="space-y-6">
                     <div className="space-y-2">
-                      <Label htmlFor="email_intro">Introduction Message</Label>
+                      <Label htmlFor="email_intro">Introduction Text</Label>
                       <Textarea
                         id="email_intro"
-                        placeholder="Write a welcoming introduction for candidates..."
+                        placeholder="You've been invited to complete an AI-powered interview for the [Job Role] position."
                         value={profile.email_intro || ""}
                         onChange={(e) => setProfile({ ...profile, email_intro: e.target.value })}
                         rows={3}
+                        className="resize-none"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Appears after the greeting. Leave empty for default text.
+                      </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="email_tips">Interview Tips</Label>
+                      <Label htmlFor="email_tips">Tips for Success</Label>
                       <Textarea
                         id="email_tips"
-                        placeholder="Add helpful tips for the interview..."
+                        placeholder="Find a quiet place with a stable internet connection. Speak clearly and take your time with each response."
                         value={profile.email_tips || ""}
                         onChange={(e) => setProfile({ ...profile, email_tips: e.target.value })}
                         rows={3}
+                        className="resize-none"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Helpful advice shown before the call-to-action button.
+                      </p>
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="email_cta">Button Text</Label>
                       <Input
                         id="email_cta"
-                        placeholder="Start Interview"
+                        placeholder="Start Your Interview"
                         value={profile.email_cta_text || ""}
                         onChange={(e) => setProfile({ ...profile, email_cta_text: e.target.value })}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Text displayed on the main action button.
+                      </p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Email Preview</Label>
-                    <div className="border rounded-lg overflow-hidden bg-muted/30">
-                      <EmailPreview
-                        companyName={profile.company_name}
-                        brandColor={profile.brand_color}
-                        logoUrl={profile.logo_url}
-                        emailIntro={profile.email_intro}
-                        emailTips={profile.email_tips}
-                        emailCta={profile.email_cta_text}
-                        candidateName="Jane Doe"
-                        jobRole="Software Engineer"
-                      />
-                    </div>
+                    <EmailPreview
+                      companyName={profile.company_name || ""}
+                      brandColor={profile.brand_color}
+                      logoUrl={profile.logo_url}
+                      emailIntro={profile.email_intro || undefined}
+                      emailTips={profile.email_tips || undefined}
+                      emailCta={profile.email_cta_text || undefined}
+                    />
                   </div>
                 </div>
               </CardContent>
