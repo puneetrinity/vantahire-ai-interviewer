@@ -41,20 +41,30 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
+    // Extract the token from the Authorization header
+    const token = authHeader.replace("Bearer ", "");
+    
+    // Create a client with the user's token to verify authentication
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
+      { 
+        global: { 
+          headers: { Authorization: `Bearer ${token}` } 
+        } 
+      }
     );
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
     if (userError || !user) {
-      console.error("Auth error:", userError);
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      console.error("Auth error:", userError?.message || "No user found");
+      return new Response(JSON.stringify({ code: 401, message: "Invalid JWT" }), {
         status: 401,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
+    
+    console.log("Authenticated user:", user.email);
 
     const requestData: SendSummaryEmailRequest = await req.json();
     console.log("Sending summary email to:", requestData.recipientEmail);
