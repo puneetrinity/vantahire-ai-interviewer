@@ -44,6 +44,7 @@ import {
   Eye,
   Briefcase,
   Mail,
+  RefreshCw,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
@@ -111,6 +112,7 @@ const Dashboard = () => {
   const [creating, setCreating] = useState(false);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [resendingWhatsApp, setResendingWhatsApp] = useState<string | null>(null);
+  const [regeneratingSummary, setRegeneratingSummary] = useState<string | null>(null);
   const [profile, setProfile] = useState<RecruiterProfile>({
     company_name: null,
     brand_color: '#6366f1',
@@ -566,6 +568,59 @@ const Dashboard = () => {
     }
   };
 
+  const regenerateSummary = async (interview: Interview) => {
+    setRegeneratingSummary(interview.id);
+    
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
+      setRegeneratingSummary(null);
+      return;
+    }
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-interview-summary", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: {
+          interviewId: interview.id
+        }
+      });
+
+      if (error) {
+        if (error.message?.includes('401') || error.message?.includes('JWT')) {
+          throw new Error("Session expired");
+        }
+        throw error;
+      }
+
+      toast({
+        title: "Summary Generated",
+        description: `AI summary has been generated for ${interview.candidate_name || interview.candidate_email}`
+      });
+
+      // Refresh interviews to show the new summary
+      fetchInterviews();
+    } catch (error: any) {
+      console.error("Failed to regenerate summary:", error);
+      if (error?.message?.includes('Session expired') || error?.message?.includes('401')) {
+        toast({
+          variant: "destructive",
+          title: "Session Expired",
+          description: "Please refresh the page and try again."
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to Generate",
+          description: "Could not generate AI summary. Please try again."
+        });
+      }
+    } finally {
+      setRegeneratingSummary(null);
+    }
+  };
+
   const handleBulkInvite = async (candidates: { email: string; name: string; jobRole: string }[]) => {
     if (!user) return [];
 
@@ -978,6 +1033,17 @@ const Dashboard = () => {
                           >
                             <Video className={`w-4 h-4 ${interview.recording_url ? "text-accent" : "text-muted-foreground"}`} />
                           </Button>
+                          {!interview.transcript_summary && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => regenerateSummary(interview)}
+                              disabled={regeneratingSummary === interview.id}
+                              title="Regenerate AI Summary"
+                            >
+                              <RefreshCw className={`w-4 h-4 text-amber-500 ${regeneratingSummary === interview.id ? "animate-spin" : ""}`} />
+                            </Button>
+                          )}
                         </>
                       )}
                       {interview.status === "pending" && (
