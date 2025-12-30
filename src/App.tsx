@@ -15,6 +15,7 @@ import Interview from "./pages/Interview";
 import VoiceInterview from "./pages/VoiceInterview";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminAuth from "./pages/AdminAuth";
+import Jobs from "./pages/Jobs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/jobs" element={<Jobs />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/candidate/auth" element={<CandidateAuth />} />
           <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
