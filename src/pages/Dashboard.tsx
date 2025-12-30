@@ -7,7 +7,7 @@ import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
 import WhatsAppStatusBadge from "@/components/WhatsAppStatusBadge";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
-import AppHeader from "@/components/AppHeader";
+import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -779,24 +779,21 @@ const Dashboard = () => {
   const selectedSummary = selectedInterview ? parseSummary(selectedInterview.transcript_summary) : null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader 
-        rightContent={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setSettingsDialogOpen(true)} title="Branding Settings">
-              <Settings className="w-4 h-4" />
-            </Button>
-            <span className="text-sm text-muted-foreground hidden sm:block">
-              {user?.email}
-            </span>
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </>
-        }
-      />
-
-      <main className="container mx-auto px-4 py-8">
+    <AppLayout
+      headerRightContent={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => setSettingsDialogOpen(true)} title="Branding Settings">
+            <Settings className="w-4 h-4" />
+          </Button>
+          <span className="text-sm text-muted-foreground hidden sm:block">
+            {user?.email}
+          </span>
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            <LogOut className="w-4 h-4" />
+          </Button>
+        </>
+      }
+    >
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
@@ -1057,7 +1054,6 @@ const Dashboard = () => {
             </div>
           </TabsContent>
         </Tabs>
-      </main>
 
       {/* Summary Dialog */}
       <Dialog open={summaryDialogOpen} onOpenChange={setSummaryDialogOpen}>
@@ -1436,7 +1432,7 @@ const Dashboard = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppLayout>
   );
 };
 
