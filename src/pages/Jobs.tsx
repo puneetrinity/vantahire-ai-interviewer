@@ -266,6 +266,14 @@ const Jobs = () => {
       toast.error("Please enter your email");
       return;
     }
+    if (!applicationForm.phone.trim()) {
+      toast.error("Please enter your phone number");
+      return;
+    }
+    if (!resumeFile && !applicationForm.resumeUrl) {
+      toast.error("Please upload your resume");
+      return;
+    }
 
     setIsApplying(true);
     try {
@@ -409,27 +417,29 @@ const Jobs = () => {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone Number</Label>
+            <Label htmlFor="phone">Phone Number <span className="text-destructive">*</span></Label>
             <Input
               id="phone"
               type="tel"
               placeholder="+91 9876543210"
               value={applicationForm.phone}
               onChange={(e) => setApplicationForm(prev => ({ ...prev, phone: e.target.value }))}
+              required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="resume">Resume (PDF, DOC)</Label>
+            <Label htmlFor="resume">Resume (PDF, DOC) <span className="text-destructive">*</span></Label>
             <Input
               id="resume"
               type="file"
               accept=".pdf,.doc,.docx"
               onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
               className="cursor-pointer"
+              required={!applicationForm.resumeUrl}
             />
             {applicationForm.resumeUrl && !resumeFile && (
-              <p className="text-xs text-muted-foreground">
-                You have an existing resume on file. Upload a new one to replace it.
+              <p className="text-xs text-green-500">
+                ✓ Resume already on file. Upload a new one to replace it.
               </p>
             )}
           </div>
