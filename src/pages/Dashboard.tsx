@@ -127,14 +127,23 @@ const Dashboard = () => {
   const { whatsappMessages } = useWhatsAppStatus(interviewIds);
 
   useEffect(() => {
-    const checkAdminRole = async (userId: string) => {
-      const { data } = await supabase
+    const checkUserRole = async (userId: string) => {
+      // Check if user is admin
+      const { data: adminData } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
         .eq('role', 'admin')
         .maybeSingle();
-      setIsAdmin(data !== null);
+      setIsAdmin(adminData !== null);
+      
+      // Check if user is a candidate - redirect them to candidate dashboard
+      const { data: roleData } = await supabase.rpc('get_user_role', { _user_id: userId });
+      if (roleData === 'candidate') {
+        navigate("/candidate/dashboard");
+        return false; // Indicate user should not stay on this page
+      }
+      return true; // User can stay
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -143,19 +152,21 @@ const Dashboard = () => {
         if (!session) {
           navigate("/auth");
         } else {
-          setTimeout(() => checkAdminRole(session.user.id), 0);
+          setTimeout(() => checkUserRole(session.user.id), 0);
         }
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (!session) {
         navigate("/auth");
       } else {
-        fetchInterviews();
-        fetchProfile(session.user.id);
-        checkAdminRole(session.user.id);
+        const canStay = await checkUserRole(session.user.id);
+        if (canStay) {
+          fetchInterviews();
+          fetchProfile(session.user.id);
+        }
       }
     });
 
