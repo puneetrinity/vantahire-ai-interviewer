@@ -662,6 +662,11 @@ const JobsTab = ({ user }: JobsTabProps) => {
         onOpenChange={setAddCandidateOpen}
         job={selectedJob}
         onSubmit={handleAddCandidate}
+        existingCandidates={selectedJob ? getJobCandidates(selectedJob.id).map(c => ({
+          email: c.candidate_email,
+          name: c.candidate_name,
+          status: c.status
+        })) : []}
       />
 
       <JobBulkInviteDialog
