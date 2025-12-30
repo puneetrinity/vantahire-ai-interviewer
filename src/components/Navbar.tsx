@@ -25,8 +25,8 @@ const Navbar = () => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <a href="/" className="flex items-center gap-2">
-            <img src={vantahireLogo} alt="VantaHire" className="w-9 h-9 rounded-lg object-cover" />
-            <span className="text-xl font-bold text-foreground">VantaHire</span>
+            <img src={vantahireLogo} alt="Vantahire AI Interviewer" className="w-9 h-9 rounded-lg object-cover" />
+            <span className="text-xl font-bold text-foreground">Vantahire AI Interviewer</span>
           </a>
 
           {/* Desktop Navigation */}
