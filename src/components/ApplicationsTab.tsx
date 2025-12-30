@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import CandidateFormFields, { CandidateFormData } from "@/components/CandidateFormFields";
 import {
   Select,
   SelectContent,
@@ -101,7 +100,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
   const [schedulingInterview, setSchedulingInterview] = useState<string | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [applicationToSchedule, setApplicationToSchedule] = useState<JobApplication | null>(null);
-  const [candidateForm, setCandidateForm] = useState({
+  const [candidateForm, setCandidateForm] = useState<CandidateFormData>({
     email: "",
     name: "",
     phone: ""
@@ -838,43 +837,12 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
             }}
             className="space-y-4 mt-4"
           >
-            <div className="space-y-2">
-              <Label htmlFor="schedule-email">Email *</Label>
-              <Input
-                id="schedule-email"
-                type="email"
-                placeholder="candidate@email.com"
-                value={candidateForm.email}
-                onChange={(e) => setCandidateForm({ ...candidateForm, email: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="schedule-name">Name *</Label>
-              <Input
-                id="schedule-name"
-                placeholder="John Doe"
-                value={candidateForm.name}
-                onChange={(e) => setCandidateForm({ ...candidateForm, name: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="schedule-phone">WhatsApp Number *</Label>
-              <Input
-                id="schedule-phone"
-                type="tel"
-                placeholder="+91 98765 43210"
-                value={candidateForm.phone}
-                onChange={(e) => setCandidateForm({ ...candidateForm, phone: e.target.value })}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Include country code for WhatsApp invite
-              </p>
-            </div>
+            <CandidateFormFields
+              formData={candidateForm}
+              onChange={setCandidateForm}
+              idPrefix="schedule"
+              disabled={schedulingInterview !== null}
+            />
 
             <div className="flex gap-2 pt-2">
               <Button

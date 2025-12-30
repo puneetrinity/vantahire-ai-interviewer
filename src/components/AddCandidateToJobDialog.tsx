@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import CandidateFormFields, { CandidateFormData } from "@/components/CandidateFormFields";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +40,7 @@ interface AddCandidateToJobDialogProps {
 }
 
 const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit, existingCandidates = [] }: AddCandidateToJobDialogProps) => {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<CandidateFormData>({
     email: "",
     name: "",
     phone: ""
@@ -109,43 +108,12 @@ const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit, existingCa
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="candidate@email.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                placeholder="John Doe"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">WhatsApp Number *</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+91 98765 43210"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Include country code for WhatsApp invite
-              </p>
-            </div>
+            <CandidateFormFields
+              formData={formData}
+              onChange={setFormData}
+              idPrefix="add-candidate"
+              disabled={adding}
+            />
 
             <div className="flex gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
