@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.send-summary-email]
 verify_jwt = false
+
+[functions.transcribe-video]
+verify_jwt = true
