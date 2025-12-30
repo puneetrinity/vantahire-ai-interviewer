@@ -87,6 +87,7 @@ const VoiceInterview = () => {
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [recordSystemAudio, setRecordSystemAudio] = useState(false);
   
   // Device test states
   const [isTestingDevices, setIsTestingDevices] = useState(false);
@@ -114,6 +115,8 @@ const VoiceInterview = () => {
   const recordedChunksRef = useRef<Blob[]>([]);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const screenshotCountRef = useRef(0);
+  const recordingAudioContextRef = useRef<AudioContext | null>(null);
+  const combinedStreamRef = useRef<MediaStream | null>(null);
   const [chatUploadedFile, setChatUploadedFile] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showEndConfirmDialog, setShowEndConfirmDialog] = useState(false);
@@ -522,7 +525,10 @@ const VoiceInterview = () => {
     setLiveMicLevel(0);
   };
 
-  const startRecording = useCallback(() => {
+  // Store system audio stream reference for cleanup
+  const systemAudioStreamRef = useRef<MediaStream | null>(null);
+
+  const startRecording = useCallback(async (withSystemAudio: boolean = false) => {
     if (!streamRef.current) {
       console.error("No stream available for recording");
       return;
@@ -531,15 +537,83 @@ const VoiceInterview = () => {
     try {
       recordedChunksRef.current = [];
       
+      // Create AudioContext for mixing audio streams
+      const audioContext = new AudioContext();
+      recordingAudioContextRef.current = audioContext;
+      
+      // Get mic audio from webcam stream
+      const micSource = audioContext.createMediaStreamSource(streamRef.current);
+      
+      // Create a destination for the mixed audio
+      const destination = audioContext.createMediaStreamDestination();
+      
+      // Create gain nodes for volume control
+      const micGain = audioContext.createGain();
+      micGain.gain.value = 1.0; // Full volume for mic
+      
+      // Connect mic through gain to destination
+      micSource.connect(micGain);
+      micGain.connect(destination);
+      
+      // Try to capture system audio if requested
+      if (withSystemAudio) {
+        try {
+          // Request display media with audio - this captures system audio
+          const systemAudioStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: 1, height: 1 }, // Minimal video, we only need audio
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            } as any,
+          });
+          
+          systemAudioStreamRef.current = systemAudioStream;
+          
+          // Stop the video track immediately - we don't need it
+          systemAudioStream.getVideoTracks().forEach(track => track.stop());
+          
+          const systemAudioTracks = systemAudioStream.getAudioTracks();
+          if (systemAudioTracks.length > 0) {
+            console.log("System audio captured successfully");
+            const systemSource = audioContext.createMediaStreamSource(
+              new MediaStream([systemAudioTracks[0]])
+            );
+            const systemGain = audioContext.createGain();
+            systemGain.gain.value = 1.5; // Boost AI audio slightly for clarity
+            systemSource.connect(systemGain);
+            systemGain.connect(destination);
+          }
+        } catch (displayError) {
+          console.log("Could not capture system audio:", displayError);
+          // Continue without system audio
+        }
+      }
+      
+      // Create combined stream with video from webcam + mixed audio
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      const mixedAudioTrack = destination.stream.getAudioTracks()[0];
+      
+      const combinedStream = new MediaStream();
+      if (videoTrack) {
+        combinedStream.addTrack(videoTrack);
+      }
+      if (mixedAudioTrack) {
+        combinedStream.addTrack(mixedAudioTrack);
+      }
+      combinedStreamRef.current = combinedStream;
+      
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
         ? 'video/webm;codecs=vp9,opus'
         : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
           ? 'video/webm;codecs=vp8,opus'
           : 'video/webm';
 
-      const mediaRecorder = new MediaRecorder(streamRef.current, {
+      // Record the combined stream instead of just webcam stream
+      const mediaRecorder = new MediaRecorder(combinedStream, {
         mimeType,
         videoBitsPerSecond: 1000000, // 1 Mbps
+        audioBitsPerSecond: 128000, // 128 kbps for better audio quality
       });
 
       mediaRecorder.ondataavailable = (event) => {
@@ -556,11 +630,16 @@ const VoiceInterview = () => {
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
       screenshotCountRef.current = 0; // Reset screenshot counter
-      console.log("Recording started");
+      console.log("Recording started", withSystemAudio ? "with system audio" : "mic only");
     } catch (error) {
       console.error("Failed to start recording:", error);
+      toast({
+        variant: "destructive",
+        title: "Recording Error",
+        description: "Could not start recording. Please try again.",
+      });
     }
-  }, []);
+  }, [toast]);
 
   // Capture screenshot from video and upload to storage
   const captureScreenshot = useCallback(async () => {
@@ -652,6 +731,17 @@ const VoiceInterview = () => {
         try {
           const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
           console.log("Recording stopped, blob size:", blob.size);
+
+          // Clean up audio context and system audio stream
+          if (recordingAudioContextRef.current) {
+            recordingAudioContextRef.current.close();
+            recordingAudioContextRef.current = null;
+          }
+          if (systemAudioStreamRef.current) {
+            systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
+            systemAudioStreamRef.current = null;
+          }
+          combinedStreamRef.current = null;
 
           if (blob.size === 0) {
             console.log("Empty recording, skipping upload");
@@ -886,7 +976,7 @@ const VoiceInterview = () => {
       });
 
       // Start recording and screenshot capture automatically
-      startRecording();
+      await startRecording(recordSystemAudio);
       startScreenshotInterval();
 
       // Send context to the agent after session starts
@@ -914,7 +1004,7 @@ const VoiceInterview = () => {
     } finally {
       setIsConnecting(false);
     }
-  }, [conversation, id, toast, candidateNotes, buildInterviewContext]);
+  }, [conversation, id, toast, candidateNotes, buildInterviewContext, startRecording, startScreenshotInterval, recordSystemAudio]);
 
   const confirmEndInterview = useCallback(() => {
     setShowEndConfirmDialog(true);
@@ -1391,6 +1481,33 @@ const VoiceInterview = () => {
                   </div>
                 </div>
               ) : null}
+            </div>
+
+            {/* System Audio Recording Option */}
+            <div className="bg-card rounded-2xl border border-border p-6">
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                🔊 Recording Quality
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                For the best recording quality with both your voice and the AI interviewer's voice, enable system audio recording. This requires sharing your screen (audio only).
+              </p>
+              <div className="flex items-start gap-3 p-4 bg-muted/30 rounded-xl">
+                <Checkbox
+                  id="record-system-audio"
+                  checked={recordSystemAudio}
+                  onCheckedChange={(checked) => setRecordSystemAudio(checked === true)}
+                  className="mt-0.5"
+                />
+                <label 
+                  htmlFor="record-system-audio" 
+                  className="text-sm cursor-pointer leading-relaxed"
+                >
+                  <span className="font-medium">Enable system audio recording</span>
+                  <span className="block text-muted-foreground text-xs mt-1">
+                    Recommended: Captures both your voice and the AI interviewer clearly
+                  </span>
+                </label>
+              </div>
             </div>
 
             {/* Confirmation Checkbox */}
