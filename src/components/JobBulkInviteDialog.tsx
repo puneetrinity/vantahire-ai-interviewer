@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +10,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Users, Upload, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import { Users, Upload, AlertCircle, CheckCircle, Loader2, MessageCircle } from "lucide-react";
 
 interface Job {
   id: string;
@@ -19,25 +20,28 @@ interface Job {
 interface Candidate {
   email: string;
   name: string;
+  phone?: string;
 }
 
 interface BulkInviteResult {
   email: string;
   success: boolean;
   error?: string;
+  whatsappSent?: boolean;
 }
 
 interface JobBulkInviteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job: Job | null;
-  onSubmit: (candidates: Candidate[]) => Promise<BulkInviteResult[]>;
+  onSubmit: (candidates: Candidate[], sendWhatsApp: boolean) => Promise<BulkInviteResult[]>;
 }
 
 const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInviteDialogProps) => {
   const [bulkInput, setBulkInput] = useState("");
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<BulkInviteResult[] | null>(null);
+  const [sendWhatsApp, setSendWhatsApp] = useState(false);
 
   const parseCSV = (input: string): Candidate[] => {
     const lines = input.trim().split("\n").filter(line => line.trim());
@@ -48,7 +52,8 @@ const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInvit
       if (parts.length >= 1 && parts[0].includes("@")) {
         candidates.push({
           email: parts[0],
-          name: parts[1] || ""
+          name: parts[1] || "",
+          phone: parts[2] || undefined
         });
       }
     }
@@ -65,7 +70,7 @@ const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInvit
     setResults(null);
 
     try {
-      const results = await onSubmit(candidates);
+      const results = await onSubmit(candidates, sendWhatsApp);
       setResults(results);
     } finally {
       setSending(false);
@@ -75,6 +80,7 @@ const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInvit
   const handleClose = () => {
     setBulkInput("");
     setResults(null);
+    setSendWhatsApp(false);
     onOpenChange(false);
   };
 
@@ -83,6 +89,8 @@ const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInvit
   const candidates = parseCSV(bulkInput);
   const successCount = results?.filter(r => r.success).length || 0;
   const failCount = results?.filter(r => !r.success).length || 0;
+  const whatsappCount = results?.filter(r => r.whatsappSent).length || 0;
+  const candidatesWithPhone = candidates.filter(c => c.phone).length;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -109,8 +117,8 @@ const JobBulkInviteDialog = ({ open, onOpenChange, job, onSubmit }: JobBulkInvit
               <Label htmlFor="bulkInput">Candidates (one per line)</Label>
               <Textarea
                 id="bulkInput"
-                placeholder={`email@example.com, John Doe
-another@email.com, Jane Smith
+                placeholder={`email@example.com, John Doe, +919876543210
+another@email.com, Jane Smith, +918765432109
 third@email.com`}
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
@@ -118,8 +126,27 @@ third@email.com`}
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Format: email, name (optional)
+                Format: email, name (optional), phone (optional for WhatsApp)
               </p>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-green-500" />
+                <div>
+                  <p className="text-sm font-medium">Send WhatsApp Invites</p>
+                  <p className="text-xs text-muted-foreground">
+                    {candidatesWithPhone > 0 
+                      ? `${candidatesWithPhone} candidate${candidatesWithPhone !== 1 ? 's' : ''} with phone numbers`
+                      : 'Add phone numbers to enable WhatsApp'}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={sendWhatsApp}
+                onCheckedChange={setSendWhatsApp}
+                disabled={candidatesWithPhone === 0}
+              />
             </div>
 
             {candidates.length > 0 && (
@@ -132,6 +159,12 @@ third@email.com`}
                     <div key={i} className="text-xs text-muted-foreground flex items-center gap-2">
                       <span className="font-mono">{c.email}</span>
                       {c.name && <span>• {c.name}</span>}
+                      {c.phone && (
+                        <span className="flex items-center gap-1 text-green-500">
+                          <MessageCircle className="w-3 h-3" />
+                          {c.phone}
+                        </span>
+                      )}
                     </div>
                   ))}
                   {candidates.length > 10 && (
@@ -175,6 +208,12 @@ third@email.com`}
                   <CheckCircle className="w-5 h-5" />
                   <span className="font-medium">{successCount} sent</span>
                 </div>
+                {whatsappCount > 0 && (
+                  <div className="flex items-center gap-2 text-green-500">
+                    <MessageCircle className="w-5 h-5" />
+                    <span className="font-medium">{whatsappCount} WhatsApp</span>
+                  </div>
+                )}
                 {failCount > 0 && (
                   <div className="flex items-center gap-2 text-destructive">
                     <AlertCircle className="w-5 h-5" />
@@ -197,6 +236,9 @@ third@email.com`}
                       <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
                     )}
                     <span className="font-mono text-xs">{result.email}</span>
+                    {result.whatsappSent && (
+                      <MessageCircle className="w-3 h-3 text-green-500 shrink-0" />
+                    )}
                     {result.error && (
                       <span className="text-xs text-destructive ml-auto">{result.error}</span>
                     )}

@@ -266,7 +266,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
     setInterviews([data as Interview, ...interviews]);
   };
 
-  const handleBulkInvite = async (candidates: { email: string; name: string }[]) => {
+  const handleBulkInvite = async (candidates: { email: string; name: string; phone?: string }[], sendWhatsApp: boolean) => {
     if (!user || !selectedJob) return [];
 
     const accessToken = await getFreshAccessToken();
@@ -274,7 +274,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
       return candidates.map(c => ({ email: c.email, success: false, error: "Session expired" }));
     }
 
-    const results: { email: string; success: boolean; error?: string }[] = [];
+    const results: { email: string; success: boolean; error?: string; whatsappSent?: boolean }[] = [];
 
     for (const candidate of candidates) {
       try {
@@ -296,6 +296,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
 
         const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
         
+        // Send email invite
         await supabase.functions.invoke("send-candidate-invite", {
           headers: { Authorization: `Bearer ${accessToken}` },
           body: {
@@ -308,8 +309,30 @@ const JobsTab = ({ user }: JobsTabProps) => {
           }
         });
 
+        let whatsappSent = false;
+        
+        // Send WhatsApp invite if enabled and phone number is provided
+        if (sendWhatsApp && candidate.phone && candidate.phone.trim()) {
+          try {
+            await supabase.functions.invoke("send-whatsapp-invite", {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              body: {
+                candidatePhone: candidate.phone,
+                candidateName: candidate.name || null,
+                jobRole: selectedJob.title,
+                interviewId: data.id,
+                interviewUrl,
+                recruiterId: user.id
+              }
+            });
+            whatsappSent = true;
+          } catch (whatsappErr) {
+            console.error(`WhatsApp error for ${candidate.email}:`, whatsappErr);
+          }
+        }
+
         setInterviews(prev => [data as Interview, ...prev]);
-        results.push({ email: candidate.email, success: true });
+        results.push({ email: candidate.email, success: true, whatsappSent });
       } catch (error: any) {
         console.error(`Error for ${candidate.email}:`, error);
         results.push({ email: candidate.email, success: false, error: error.message || "Failed" });
@@ -317,10 +340,13 @@ const JobsTab = ({ user }: JobsTabProps) => {
     }
 
     const successCount = results.filter(r => r.success).length;
+    const whatsappCount = results.filter(r => r.whatsappSent).length;
+    
     if (successCount > 0) {
+      const whatsappMsg = whatsappCount > 0 ? ` (${whatsappCount} via WhatsApp)` : '';
       toast({
         title: "Bulk Invites Sent",
-        description: `Successfully sent ${successCount} of ${candidates.length} invitations.`
+        description: `Successfully sent ${successCount} of ${candidates.length} invitations${whatsappMsg}.`
       });
     }
 
