@@ -1,3 +1,5 @@
+import { Twitter, Linkedin, Facebook, Instagram } from "lucide-react";
+
 const Footer = () => {
   const links = {
     Product: [
@@ -25,6 +27,13 @@ const Footer = () => {
     ],
   };
 
+  const socialLinks = [
+    { name: "LinkedIn", href: "https://linkedin.com/company/vantahire", icon: Linkedin },
+    { name: "Twitter", href: "https://twitter.com/vantahire", icon: Twitter },
+    { name: "Facebook", href: "https://facebook.com/vantahire", icon: Facebook },
+    { name: "Instagram", href: "https://instagram.com/vantahire", icon: Instagram },
+  ];
+
   return (
     <footer className="py-16 bg-[#0D0D1A] text-white">
       <div className="container mx-auto px-4">
@@ -42,9 +51,22 @@ const Footer = () => {
             <p className="text-gray-400 text-sm mb-4">
               AI-powered interviews that integrate seamlessly with Vantahire ATS.
             </p>
-            <p className="text-gray-500 text-xs">
-              Powered by Vantahire ATS
-            </p>
+            
+            {/* Social Icons */}
+            <div className="flex items-center gap-3 mt-4">
+              {socialLinks.map((social) => (
+                <a
+                  key={social.name}
+                  href={social.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-primary flex items-center justify-center transition-colors"
+                  aria-label={social.name}
+                >
+                  <social.icon className="w-4 h-4 text-gray-400 hover:text-white" />
+                </a>
+              ))}
+            </div>
           </div>
 
           {/* Links */}
@@ -74,32 +96,14 @@ const Footer = () => {
           <p className="text-gray-400 text-sm">
             © {new Date().getFullYear()} Vantahire. All rights reserved.
           </p>
-          <div className="flex items-center gap-6">
-            <a 
-              href="https://twitter.com/vantahire" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-400 hover:text-white transition-colors text-sm"
-            >
-              Twitter
-            </a>
-            <a 
-              href="https://linkedin.com/company/vantahire" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-400 hover:text-white transition-colors text-sm"
-            >
-              LinkedIn
-            </a>
-            <a 
-              href="https://vantahire.com" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gray-400 hover:text-white transition-colors text-sm"
-            >
-              Vantahire.com
-            </a>
-          </div>
+          <a 
+            href="https://vantahire.com" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-gray-400 hover:text-white transition-colors text-sm"
+          >
+            Vantahire.com
+          </a>
         </div>
       </div>
     </footer>
