@@ -117,7 +117,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
         .update({ 
           approval_status: 'approved',
           approved_at: new Date().toISOString()
-        } as any)
+        })
         .eq('id', jobId);
 
       if (error) throw error;
@@ -150,7 +150,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
         .update({ 
           approval_status: 'rejected',
           rejection_reason: rejectionReason
-        } as any)
+        })
         .eq('id', selectedJob.id);
 
       if (error) throw error;

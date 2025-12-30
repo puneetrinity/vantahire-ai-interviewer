@@ -312,6 +312,9 @@ export type Database = {
       }
       jobs: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           created_at: string
           department: string | null
           description: string | null
@@ -319,12 +322,16 @@ export type Database = {
           job_type: string | null
           location: string | null
           recruiter_id: string
+          rejection_reason: string | null
           salary_range: string | null
           status: string
           title: string
           updated_at: string
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           department?: string | null
           description?: string | null
@@ -332,12 +339,16 @@ export type Database = {
           job_type?: string | null
           location?: string | null
           recruiter_id: string
+          rejection_reason?: string | null
           salary_range?: string | null
           status?: string
           title: string
           updated_at?: string
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           department?: string | null
           description?: string | null
@@ -345,6 +356,7 @@ export type Database = {
           job_type?: string | null
           location?: string | null
           recruiter_id?: string
+          rejection_reason?: string | null
           salary_range?: string | null
           status?: string
           title?: string
