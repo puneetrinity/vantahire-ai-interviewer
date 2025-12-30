@@ -32,39 +32,24 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      console.error("No authorization header");
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    }
-
-    // Extract the token from the Authorization header
-    const token = authHeader.replace("Bearer ", "");
-    
-    // Create a client with the user's token to verify authentication
-    const supabaseClient = createClient(
+    // Use service role client for this operation since it's recruiter-initiated sharing
+    const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { 
-        global: { 
-          headers: { Authorization: `Bearer ${token}` } 
-        } 
-      }
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
-    if (userError || !user) {
-      console.error("Auth error:", userError?.message || "No user found");
-      return new Response(JSON.stringify({ code: 401, message: "Invalid JWT" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    }
+    // Try to get user from auth header if provided
+    const authHeader = req.headers.get("Authorization");
+    let senderEmail = "A recruiter";
     
-    console.log("Authenticated user:", user.email);
+    if (authHeader) {
+      const token = authHeader.replace("Bearer ", "");
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+      if (user?.email) {
+        senderEmail = user.email;
+        console.log("Authenticated sender:", senderEmail);
+      }
+    }
 
     const requestData: SendSummaryEmailRequest = await req.json();
     console.log("Sending summary email to:", requestData.recipientEmail);
