@@ -177,7 +177,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
     });
   };
 
-  const handleAddCandidate = async (candidate: { email: string; name: string }) => {
+  const handleAddCandidate = async (candidate: { email: string; name: string; phone?: string }) => {
     if (!user || !selectedJob) return;
 
     // Create interview linked to job
@@ -210,6 +210,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
       const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
       
       try {
+        // Send email invite
         await supabase.functions.invoke("send-candidate-invite", {
           headers: { Authorization: `Bearer ${accessToken}` },
           body: {
@@ -222,10 +223,37 @@ const JobsTab = ({ user }: JobsTabProps) => {
           }
         });
 
-        toast({
-          title: "Candidate Added",
-          description: `Invitation sent to ${candidate.email}`
-        });
+        // Send WhatsApp invite if phone number is provided
+        if (candidate.phone && candidate.phone.trim()) {
+          try {
+            await supabase.functions.invoke("send-whatsapp-invite", {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              body: {
+                candidatePhone: candidate.phone,
+                candidateName: candidate.name || null,
+                jobRole: selectedJob.title,
+                interviewId: data.id,
+                interviewUrl,
+                recruiterId: user.id
+              }
+            });
+            toast({
+              title: "Candidate Added",
+              description: `Email and WhatsApp invitation sent to ${candidate.email}`
+            });
+          } catch (whatsappErr) {
+            console.error("WhatsApp error:", whatsappErr);
+            toast({
+              title: "Candidate Added",
+              description: `Email sent to ${candidate.email}. WhatsApp invite failed.`
+            });
+          }
+        } else {
+          toast({
+            title: "Candidate Added",
+            description: `Invitation sent to ${candidate.email}`
+          });
+        }
       } catch (emailErr) {
         console.error("Email error:", emailErr);
         toast({

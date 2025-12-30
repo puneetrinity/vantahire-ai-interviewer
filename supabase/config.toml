@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.improve-email-copy]
 verify_jwt = true
+
+[functions.send-whatsapp-invite]
+verify_jwt = false
