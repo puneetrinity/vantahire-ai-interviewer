@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import AppHeader from "@/components/AppHeader";
+import Footer from "@/components/Footer";
 
 interface AppLayoutProps {
   /** Main content of the page */
@@ -14,6 +15,8 @@ interface AppLayoutProps {
   fullHeight?: boolean;
   /** Content to render outside the main container (dialogs, modals, etc.) */
   outsideContent?: ReactNode;
+  /** Whether to show the footer (default: false) */
+  showFooter?: boolean;
 }
 
 const AppLayout = ({ 
@@ -22,7 +25,8 @@ const AppLayout = ({
   linkToHome = true,
   containerClassName = "",
   fullHeight = false,
-  outsideContent
+  outsideContent,
+  showFooter = false
 }: AppLayoutProps) => {
   return (
     <div className={`min-h-screen bg-background ${fullHeight ? "flex flex-col" : ""}`}>
@@ -32,6 +36,7 @@ const AppLayout = ({
         {children}
       </main>
 
+      {showFooter && <Footer />}
       {outsideContent}
     </div>
   );
