@@ -10,6 +10,7 @@ import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import AppLayout from "@/components/AppLayout";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import OnboardingTour from "@/components/OnboardingTour";
+import OnboardingProgress from "@/components/OnboardingProgress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,6 +127,7 @@ const Dashboard = () => {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [improvingEmail, setImprovingEmail] = useState(false);
   const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
+  const [jobsCount, setJobsCount] = useState(0);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -175,6 +177,38 @@ const Dashboard = () => {
           // Refetch interviews when any change occurs
           fetchInterviews();
         }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Fetch jobs count for onboarding progress
+  useEffect(() => {
+    if (!user) return;
+    
+    const fetchJobsCount = async () => {
+      const { count } = await supabase
+        .from("jobs")
+        .select("*", { count: "exact", head: true });
+      setJobsCount(count || 0);
+    };
+    
+    fetchJobsCount();
+    
+    // Subscribe to jobs changes
+    const channel = supabase
+      .channel('jobs-count')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'jobs'
+        },
+        () => fetchJobsCount()
       )
       .subscribe();
 
@@ -795,6 +829,25 @@ const Dashboard = () => {
     >
         {/* Onboarding Tour */}
         <OnboardingTour isFirstVisit={!loading} />
+
+        {/* Onboarding Progress Tracker */}
+        <OnboardingProgress
+          hasJobs={jobsCount > 0}
+          hasCandidates={interviews.length > 0}
+          hasCompletedInterview={interviews.some(i => i.status === "completed")}
+          hasBrandingSetup={!!(profile.logo_url || profile.company_name)}
+          onCreateJob={() => {
+            // Switch to jobs tab - we'll use a ref or state
+            const jobsTab = document.querySelector('[value="jobs"]') as HTMLButtonElement;
+            if (jobsTab) jobsTab.click();
+            // Small delay then trigger create job dialog via clicking the button
+            setTimeout(() => {
+              const createBtn = document.querySelector('[data-tour="create-job"]') as HTMLButtonElement;
+              if (createBtn) createBtn.click();
+            }, 100);
+          }}
+          onOpenSettings={() => setSettingsDialogOpen(true)}
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" data-tour="stats">
