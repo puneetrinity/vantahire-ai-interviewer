@@ -75,6 +75,7 @@ const VoiceInterview = () => {
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [videoEnabled, setVideoEnabled] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(true);
   const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   
@@ -604,6 +605,23 @@ const VoiceInterview = () => {
       stopVideo();
     } else {
       startVideo();
+    }
+  };
+
+  const toggleMic = () => {
+    if (streamRef.current) {
+      const audioTracks = streamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setMicEnabled(!micEnabled);
+      
+      toast({
+        title: micEnabled ? "Microphone Muted" : "Microphone Unmuted",
+        description: micEnabled 
+          ? "The AI interviewer cannot hear you" 
+          : "The AI interviewer can now hear you",
+      });
     }
   };
 
@@ -1437,11 +1455,21 @@ const VoiceInterview = () => {
                   </Button>
                 )}
 
-                <div className={`rounded-full w-14 h-14 flex items-center justify-center ${
-                  isConnected ? "bg-accent text-accent-foreground" : "bg-muted"
-                }`}>
-                  {isConnected ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
-                </div>
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={toggleMic}
+                  disabled={!isConnected}
+                  className={`rounded-full w-14 h-14 ${
+                    !micEnabled 
+                      ? "bg-destructive text-destructive-foreground" 
+                      : isConnected 
+                        ? "bg-accent text-accent-foreground" 
+                        : "bg-muted"
+                  }`}
+                >
+                  {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                </Button>
               </div>
             </div>
 
