@@ -63,12 +63,46 @@ const Jobs = () => {
   const [user, setUser] = useState<any>(null);
   const [coverLetter, setCoverLetter] = useState("");
   const [isApplying, setIsApplying] = useState(false);
+  const [applicationForm, setApplicationForm] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    resumeUrl: "",
+  });
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [uploadingResume, setUploadingResume] = useState(false);
 
-  // Check auth status
+  // Check auth status and prefill form
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      
+      // If user is logged in, prefill their details
+      if (user) {
+        // Get user's candidate profile
+        const { data: profile } = await supabase
+          .from('candidate_profiles')
+          .select('full_name, email, phone, resume_url')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        
+        if (profile) {
+          setApplicationForm({
+            fullName: profile.full_name || user.user_metadata?.full_name || "",
+            email: profile.email || user.email || "",
+            phone: profile.phone || "",
+            resumeUrl: profile.resume_url || "",
+          });
+        } else {
+          setApplicationForm({
+            fullName: user.user_metadata?.full_name || "",
+            email: user.email || "",
+            phone: "",
+            resumeUrl: "",
+          });
+        }
+      }
     };
     checkAuth();
 
@@ -188,6 +222,34 @@ const Jobs = () => {
     return app?.status;
   };
 
+  const handleResumeUpload = async (file: File) => {
+    if (!user) return null;
+    
+    setUploadingResume(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('interview-documents')
+        .upload(fileName, file, { upsert: true });
+      
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('interview-documents')
+        .getPublicUrl(fileName);
+      
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading resume:', error);
+      toast.error('Failed to upload resume');
+      return null;
+    } finally {
+      setUploadingResume(false);
+    }
+  };
+
   const handleApply = async (job: Job) => {
     if (!user) {
       // Redirect to auth if not logged in
@@ -195,14 +257,35 @@ const Jobs = () => {
       return;
     }
 
+    // Validate required fields
+    if (!applicationForm.fullName.trim()) {
+      toast.error("Please enter your full name");
+      return;
+    }
+    if (!applicationForm.email.trim()) {
+      toast.error("Please enter your email");
+      return;
+    }
+
     setIsApplying(true);
     try {
+      let resumeUrl = applicationForm.resumeUrl;
+      
+      // Upload resume if a new file was selected
+      if (resumeFile) {
+        const uploadedUrl = await handleResumeUpload(resumeFile);
+        if (uploadedUrl) {
+          resumeUrl = uploadedUrl;
+        }
+      }
+
       const { error } = await supabase
         .from("job_applications")
         .insert({
           job_id: job.id,
           candidate_id: user.id,
           cover_letter: coverLetter || null,
+          resume_url: resumeUrl || null,
           status: "pending",
         });
 
@@ -213,9 +296,22 @@ const Jobs = () => {
           throw error;
         }
       } else {
+        // Update candidate profile with latest info
+        await supabase
+          .from('candidate_profiles')
+          .upsert({
+            user_id: user.id,
+            full_name: applicationForm.fullName,
+            email: applicationForm.email,
+            phone: applicationForm.phone || null,
+            resume_url: resumeUrl || null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id' });
+
         toast.success("Application submitted successfully!");
         queryClient.invalidateQueries({ queryKey: ["user-applications"] });
         setCoverLetter("");
+        setResumeFile(null);
         setSelectedJob(null);
       }
     } catch (error: any) {
@@ -287,6 +383,58 @@ const Jobs = () => {
 
     return (
       <div className="pt-4 border-t space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="fullName">Full Name <span className="text-destructive">*</span></Label>
+            <Input
+              id="fullName"
+              placeholder="Your full name"
+              value={applicationForm.fullName}
+              onChange={(e) => setApplicationForm(prev => ({ ...prev, fullName: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="your@email.com"
+              value={applicationForm.email}
+              onChange={(e) => setApplicationForm(prev => ({ ...prev, email: e.target.value }))}
+              required
+            />
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="phone">Phone Number</Label>
+            <Input
+              id="phone"
+              type="tel"
+              placeholder="+91 9876543210"
+              value={applicationForm.phone}
+              onChange={(e) => setApplicationForm(prev => ({ ...prev, phone: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="resume">Resume (PDF, DOC)</Label>
+            <Input
+              id="resume"
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+              className="cursor-pointer"
+            />
+            {applicationForm.resumeUrl && !resumeFile && (
+              <p className="text-xs text-muted-foreground">
+                You have an existing resume on file. Upload a new one to replace it.
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="cover-letter">Cover Letter (Optional)</Label>
           <Textarea
@@ -297,16 +445,17 @@ const Jobs = () => {
             rows={4}
           />
         </div>
+        
         <div className="flex gap-3">
           <Button 
             className="flex-1"
             onClick={() => handleApply(job)}
-            disabled={isApplying}
+            disabled={isApplying || uploadingResume}
           >
-            {isApplying ? (
+            {isApplying || uploadingResume ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Submitting...
+                {uploadingResume ? "Uploading Resume..." : "Submitting..."}
               </>
             ) : (
               <>
