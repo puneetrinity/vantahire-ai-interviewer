@@ -20,13 +20,14 @@ interface AddCandidateToJobDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job: Job | null;
-  onSubmit: (candidate: { email: string; name: string }) => Promise<void>;
+  onSubmit: (candidate: { email: string; name: string; phone?: string }) => Promise<void>;
 }
 
 const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandidateToJobDialogProps) => {
   const [formData, setFormData] = useState({
     email: "",
-    name: ""
+    name: "",
+    phone: ""
   });
   const [adding, setAdding] = useState(false);
 
@@ -35,7 +36,7 @@ const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandi
     setAdding(true);
     try {
       await onSubmit(formData);
-      setFormData({ email: "", name: "" });
+      setFormData({ email: "", name: "", phone: "" });
       onOpenChange(false);
     } finally {
       setAdding(false);
@@ -78,6 +79,20 @@ const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandi
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="phone">WhatsApp Number (optional)</Label>
+            <Input
+              id="phone"
+              type="tel"
+              placeholder="+91 98765 43210"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Include country code for WhatsApp invite
+            </p>
           </div>
 
           <div className="flex gap-2 pt-2">
