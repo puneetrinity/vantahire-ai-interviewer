@@ -886,51 +886,7 @@ const Dashboard = () => {
                   <h2 className="text-xl font-semibold text-foreground">All Interviews</h2>
                   <p className="text-sm text-muted-foreground">Manage your candidate interviews</p>
                 </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setBulkInviteOpen(true)}>
-                <Users className="w-4 h-4 mr-2" />
-                Bulk Invite
-              </Button>
-              
-              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="hero">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Candidate
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <Users className="w-5 h-5" />
-                      Add Candidate
-                    </DialogTitle>
-                    <DialogDescription>
-                      Add a candidate to interview for <strong>{profile.company_name || "Recruiter"}</strong>
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateInterview} className="space-y-4 mt-4">
-                    <CandidateFormFields
-                      formData={{ email: newInterview.email, name: newInterview.name, phone: newInterview.phone }}
-                      onChange={(data) => setNewInterview({ ...newInterview, email: data.email, name: data.name, phone: data.phone })}
-                      idPrefix="new-interview"
-                      disabled={creating}
-                    />
-                    <div className="flex gap-2 pt-2">
-                      <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)} className="flex-1" disabled={creating}>
-                        Cancel
-                      </Button>
-                      <Button type="submit" variant="hero" className="flex-1" disabled={creating || !newInterview.email || !newInterview.name || !newInterview.phone}>
-                        {creating ? "Adding..." : "Add & Send Invite"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
+              </div>
           <BulkInviteDialog
             open={bulkInviteOpen}
             onOpenChange={setBulkInviteOpen}
