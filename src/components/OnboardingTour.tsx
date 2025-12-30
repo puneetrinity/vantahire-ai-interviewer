@@ -14,7 +14,7 @@ const tourSteps: Step[] = [
       <div className="space-y-2">
         <h3 className="font-bold text-lg">Welcome to VantaHire! 🎉</h3>
         <p>Let's take a quick tour to help you get started with AI-powered interviews.</p>
-        <p className="text-sm text-muted-foreground">This will only take about 1 minute.</p>
+        <p className="text-sm text-muted-foreground">This will only take about 2 minutes.</p>
       </div>
     ),
     placement: "center",
@@ -63,10 +63,52 @@ const tourSteps: Step[] = [
     spotlightClicks: true,
   },
   {
+    target: '[data-tour="add-candidate-btn"]',
+    content: (
+      <div className="space-y-2">
+        <h3 className="font-bold">Add Individual Candidates</h3>
+        <p>Click <strong>Add</strong> to invite a single candidate. Enter their email and optionally their phone number for WhatsApp notifications.</p>
+      </div>
+    ),
+    placement: "bottom",
+  },
+  {
+    target: '[data-tour="bulk-invite-btn"]',
+    content: (
+      <div className="space-y-2">
+        <h3 className="font-bold">Bulk Invite Candidates</h3>
+        <p>Need to invite many candidates at once? Use <strong>Bulk</strong> to upload a CSV or paste multiple emails.</p>
+        <p className="text-sm text-muted-foreground">Great for high-volume hiring!</p>
+      </div>
+    ),
+    placement: "bottom",
+  },
+  {
+    target: '[data-tour="whatsapp-status"]',
+    content: (
+      <div className="space-y-2">
+        <h3 className="font-bold">WhatsApp Integration</h3>
+        <p>Track WhatsApp message delivery status. See when invitations are sent, delivered, and read by candidates.</p>
+        <p className="text-sm text-muted-foreground">Higher response rates with multi-channel outreach!</p>
+      </div>
+    ),
+    placement: "left",
+  },
+  {
+    target: '[data-tour="resend-actions"]',
+    content: (
+      <div className="space-y-2">
+        <h3 className="font-bold">Resend Invitations</h3>
+        <p>If a candidate hasn't responded, you can resend the invitation via email or WhatsApp with one click.</p>
+      </div>
+    ),
+    placement: "left",
+  },
+  {
     target: '[data-tour="interviews-tab"]',
     content: (
       <div className="space-y-2">
-        <h3 className="font-bold">Step 3: Review Results</h3>
+        <h3 className="font-bold">Review All Interviews</h3>
         <p>After candidates complete their AI interviews, view their scores and AI-generated summaries here.</p>
       </div>
     ),
@@ -77,7 +119,7 @@ const tourSteps: Step[] = [
     content: (
       <div className="space-y-2">
         <h3 className="font-bold">Customize Your Brand</h3>
-        <p>Add your company logo and colors to personalize interview invitations.</p>
+        <p>Add your company logo and colors to personalize interview invitations and candidate experience.</p>
       </div>
     ),
     placement: "bottom",

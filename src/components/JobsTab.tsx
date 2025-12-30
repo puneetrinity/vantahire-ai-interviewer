@@ -608,6 +608,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                           setSelectedJob(job);
                           setAddCandidateOpen(true);
                         }}
+                        data-tour={jobs.indexOf(job) === 0 ? "add-candidate-btn" : undefined}
                       >
                         <UserPlus className="w-4 h-4 mr-1" />
                         Add
@@ -620,6 +621,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                           setSelectedJob(job);
                           setBulkInviteOpen(true);
                         }}
+                        data-tour={jobs.indexOf(job) === 0 ? "bulk-invite-btn" : undefined}
                       >
                         <Mail className="w-4 h-4 mr-1" />
                         Bulk
@@ -746,6 +748,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                                       variant="ghost"
                                       size="icon"
                                       disabled={resending[candidate.id]?.email || resending[candidate.id]?.whatsapp}
+                                      data-tour="resend-actions"
                                     >
                                       {resending[candidate.id]?.email || resending[candidate.id]?.whatsapp ? (
                                         <RefreshCw className="w-3 h-3 animate-spin" />

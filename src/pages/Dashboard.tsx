@@ -960,13 +960,15 @@ const Dashboard = () => {
                       {interview.status.replace("_", " ")}
                     </span>
                     {whatsappMessages[interview.id] && (
-                      <WhatsAppStatusBadge
-                        status={whatsappMessages[interview.id].status}
-                        phone={whatsappMessages[interview.id].candidate_phone}
-                        sentAt={whatsappMessages[interview.id].sent_at}
-                        deliveredAt={whatsappMessages[interview.id].delivered_at || undefined}
-                        readAt={whatsappMessages[interview.id].read_at || undefined}
-                      />
+                      <div data-tour="whatsapp-status">
+                        <WhatsAppStatusBadge
+                          status={whatsappMessages[interview.id].status}
+                          phone={whatsappMessages[interview.id].candidate_phone}
+                          sentAt={whatsappMessages[interview.id].sent_at}
+                          deliveredAt={whatsappMessages[interview.id].delivered_at || undefined}
+                          readAt={whatsappMessages[interview.id].read_at || undefined}
+                        />
+                      </div>
                     )}
                     <div className="flex items-center gap-1">
                       {interview.status === "completed" && (
