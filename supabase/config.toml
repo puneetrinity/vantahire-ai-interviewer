@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.send-job-status-email]
 verify_jwt = false
+
+[functions.send-application-notification]
+verify_jwt = false

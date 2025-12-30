@@ -316,6 +316,26 @@ const Jobs = () => {
             updated_at: new Date().toISOString(),
           }, { onConflict: 'user_id' });
 
+        // Notify recruiter about the new application
+        try {
+          await supabase.functions.invoke('send-application-notification', {
+            body: {
+              jobId: job.id,
+              jobTitle: job.title,
+              recruiterId: job.recruiter_id,
+              candidateName: applicationForm.fullName,
+              candidateEmail: applicationForm.email,
+              candidatePhone: applicationForm.phone,
+              hasResume: !!resumeUrl,
+              hasCoverLetter: !!coverLetter,
+            },
+          });
+          console.log('Recruiter notification sent successfully');
+        } catch (notifyError) {
+          console.error('Failed to notify recruiter:', notifyError);
+          // Don't fail the application if notification fails
+        }
+
         toast.success("Application submitted successfully!");
         queryClient.invalidateQueries({ queryKey: ["user-applications"] });
         setCoverLetter("");
