@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
+import ApplicationsTab from "@/components/ApplicationsTab";
 import WhatsAppStatusBadge from "@/components/WhatsAppStatusBadge";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import AppLayout from "@/components/AppLayout";
@@ -712,19 +713,27 @@ const Dashboard = () => {
 
         {/* Tabs for Jobs and Interviews */}
         <Tabs defaultValue="jobs" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2" data-tour="tabs">
+          <TabsList className="grid w-full max-w-lg grid-cols-3" data-tour="tabs">
             <TabsTrigger value="jobs" className="flex items-center gap-2">
               <Briefcase className="w-4 h-4" />
               Jobs
             </TabsTrigger>
+            <TabsTrigger value="applications" className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Applications
+            </TabsTrigger>
             <TabsTrigger value="interviews" className="flex items-center gap-2" data-tour="interviews-tab">
               <Users className="w-4 h-4" />
-              All Interviews
+              Interviews
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="jobs">
             <JobsTab user={user} />
+          </TabsContent>
+
+          <TabsContent value="applications">
+            <ApplicationsTab user={user} />
           </TabsContent>
 
           <TabsContent value="interviews">
