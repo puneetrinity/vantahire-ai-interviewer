@@ -38,6 +38,8 @@ import {
   Clock,
   MessageSquare,
   Video,
+  Play,
+  Loader2,
 } from "lucide-react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { format } from "date-fns";
@@ -92,6 +94,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterJob, setFilterJob] = useState<string>("all");
   const [jobs, setJobs] = useState<{ id: string; title: string }[]>([]);
+  const [schedulingInterview, setSchedulingInterview] = useState<string | null>(null);
   const { toast } = useToast();
 
   const fetchApplications = async () => {
@@ -231,6 +234,102 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
         title: "Error",
         description: "Failed to update application status",
       });
+    }
+  };
+
+  const scheduleInterview = async (application: JobApplication) => {
+    if (!user) return;
+    
+    const candidateEmail = application.candidate_profiles?.email;
+    const candidateName = application.candidate_profiles?.full_name;
+    const jobTitle = application.jobs?.title;
+    
+    if (!candidateEmail) {
+      toast({
+        variant: "destructive",
+        title: "Missing Information",
+        description: "Candidate email is required to schedule an interview",
+      });
+      return;
+    }
+    
+    setSchedulingInterview(application.id);
+    
+    try {
+      // Create interview record
+      const { data: interview, error: interviewError } = await supabase
+        .from("interviews")
+        .insert({
+          recruiter_id: user.id,
+          candidate_email: candidateEmail,
+          candidate_name: candidateName || null,
+          job_role: jobTitle || "Position",
+          job_id: application.job_id,
+          status: "pending",
+          time_limit_minutes: 30,
+          candidate_resume_url: application.resume_url || null,
+        })
+        .select()
+        .single();
+
+      if (interviewError) throw interviewError;
+
+      // Update application status to interview_scheduled
+      await updateApplicationStatus(application.id, "interview_scheduled");
+
+      // Send interview invitation email
+      const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        
+        if (accessToken) {
+          await supabase.functions.invoke("send-candidate-invite", {
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: {
+              candidateEmail,
+              candidateName,
+              jobRole: jobTitle || "Position",
+              interviewId: interview.id,
+              interviewUrl,
+              recruiterId: user.id
+            }
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send interview invitation:", emailError);
+        // Don't fail the interview creation if email fails
+      }
+
+      toast({
+        title: "Interview Scheduled",
+        description: `AI interview created for ${candidateName || candidateEmail}. Invitation sent.`,
+      });
+
+      // Update local state
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === application.id
+            ? { ...app, status: "interview_scheduled", updated_at: new Date().toISOString() }
+            : app
+        )
+      );
+      
+      if (selectedApplication?.id === application.id) {
+        setSelectedApplication({ ...selectedApplication, status: "interview_scheduled" });
+      }
+    } catch (error: any) {
+      console.error("Error scheduling interview:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to schedule interview. Please try again.",
+      });
+    } finally {
+      setSchedulingInterview(null);
     }
   };
 
@@ -437,6 +536,22 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {(application.status === "shortlisted" || application.status === "reviewed") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => scheduleInterview(application)}
+                          disabled={schedulingInterview === application.id}
+                          title="Schedule AI Interview"
+                          className="text-primary hover:text-primary"
+                        >
+                          {schedulingInterview === application.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Play className="w-4 h-4" />
+                          )}
+                        </Button>
+                      )}
                       {application.resume_url && (
                         <Button
                           variant="ghost"
@@ -605,6 +720,51 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                     <Download className="w-4 h-4 mr-2" />
                     Download Resume
                   </Button>
+                </div>
+              )}
+
+              {/* Schedule Interview Button */}
+              {(selectedApplication.status === "shortlisted" || selectedApplication.status === "reviewed") && (
+                <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
+                  <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Video className="w-4 h-4 text-primary" />
+                    Schedule AI Interview
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Create an AI-powered interview for this candidate. They will receive an invitation email with the interview link.
+                  </p>
+                  <Button
+                    onClick={() => {
+                      scheduleInterview(selectedApplication);
+                      setDetailsOpen(false);
+                    }}
+                    disabled={schedulingInterview === selectedApplication.id}
+                    className="w-full"
+                  >
+                    {schedulingInterview === selectedApplication.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Scheduling...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-2" />
+                        Schedule Interview Now
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {selectedApplication.status === "interview_scheduled" && (
+                <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-200">
+                  <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                    <Video className="w-4 h-4 text-purple-600" />
+                    Interview Scheduled
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    An AI interview has been scheduled for this candidate. Check the Interviews tab for details.
+                  </p>
                 </div>
               )}
 
