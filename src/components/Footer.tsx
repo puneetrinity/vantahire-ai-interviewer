@@ -26,7 +26,7 @@ const Footer = () => {
   };
 
   return (
-    <footer className="py-16 bg-foreground text-primary-foreground">
+    <footer className="py-16 bg-[#0D0D1A] text-white">
       <div className="container mx-auto px-4">
         <div className="grid md:grid-cols-5 gap-12 mb-12">
           {/* Brand */}
@@ -37,12 +37,12 @@ const Footer = () => {
                 alt="Vantahire" 
                 className="w-9 h-9 rounded-lg object-cover" 
               />
-              <span className="text-xl font-bold">Vantahire AI Interview</span>
+              <span className="text-xl font-bold text-white">Vantahire AI Interview</span>
             </a>
-            <p className="text-primary-foreground/60 text-sm mb-4">
+            <p className="text-gray-400 text-sm mb-4">
               AI-powered interviews that integrate seamlessly with Vantahire ATS.
             </p>
-            <p className="text-primary-foreground/40 text-xs">
+            <p className="text-gray-500 text-xs">
               Powered by Vantahire ATS
             </p>
           </div>
@@ -50,13 +50,13 @@ const Footer = () => {
           {/* Links */}
           {Object.entries(links).map(([category, items]) => (
             <div key={category}>
-              <h4 className="font-semibold mb-4">{category}</h4>
+              <h4 className="font-semibold mb-4 text-white">{category}</h4>
               <ul className="space-y-2">
                 {items.map((item) => (
                   <li key={item.name}>
                     <a
                       href={item.href}
-                      className="text-primary-foreground/60 hover:text-primary-foreground transition-colors text-sm"
+                      className="text-gray-400 hover:text-white transition-colors text-sm"
                       target={item.href.startsWith("http") ? "_blank" : undefined}
                       rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}
                     >
@@ -70,8 +70,8 @@ const Footer = () => {
         </div>
 
         {/* Bottom */}
-        <div className="pt-8 border-t border-primary-foreground/10 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-primary-foreground/60 text-sm">
+        <div className="pt-8 border-t border-gray-800 flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-gray-400 text-sm">
             © {new Date().getFullYear()} Vantahire. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
@@ -79,7 +79,7 @@ const Footer = () => {
               href="https://twitter.com/vantahire" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-primary-foreground/60 hover:text-primary-foreground transition-colors text-sm"
+              className="text-gray-400 hover:text-white transition-colors text-sm"
             >
               Twitter
             </a>
@@ -87,7 +87,7 @@ const Footer = () => {
               href="https://linkedin.com/company/vantahire" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-primary-foreground/60 hover:text-primary-foreground transition-colors text-sm"
+              className="text-gray-400 hover:text-white transition-colors text-sm"
             >
               LinkedIn
             </a>
@@ -95,7 +95,7 @@ const Footer = () => {
               href="https://vantahire.com" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-primary-foreground/60 hover:text-primary-foreground transition-colors text-sm"
+              className="text-gray-400 hover:text-white transition-colors text-sm"
             >
               Vantahire.com
             </a>
