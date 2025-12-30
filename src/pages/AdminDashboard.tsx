@@ -14,13 +14,16 @@ import {
   LogOut,
   UserCheck,
   UserX,
-  FileText
+  FileText,
+  LayoutDashboard
 } from "lucide-react";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import { AdminUsersTab } from "@/components/admin/AdminUsersTab";
 import { AdminJobsTab } from "@/components/admin/AdminJobsTab";
 import { AdminAnalyticsTab } from "@/components/admin/AdminAnalyticsTab";
 import { AdminSettingsTab } from "@/components/admin/AdminSettingsTab";
+import { AdminInterviewsTab } from "@/components/admin/AdminInterviewsTab";
+import { AdminOverviewTab } from "@/components/admin/AdminOverviewTab";
 
 const AdminDashboard = () => {
   const { user, isAdmin, isLoading } = useAdminAuth();
@@ -206,8 +209,12 @@ const AdminDashboard = () => {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="users" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+        <Tabs defaultValue="overview" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
+            <TabsTrigger value="overview" className="gap-2">
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="hidden sm:inline">Overview</span>
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="w-4 h-4" />
               <span className="hidden sm:inline">Users</span>
@@ -215,6 +222,10 @@ const AdminDashboard = () => {
             <TabsTrigger value="jobs" className="gap-2">
               <Briefcase className="w-4 h-4" />
               <span className="hidden sm:inline">Jobs</span>
+            </TabsTrigger>
+            <TabsTrigger value="interviews" className="gap-2">
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">Interviews</span>
             </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-2">
               <BarChart3 className="w-4 h-4" />
@@ -226,12 +237,20 @@ const AdminDashboard = () => {
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="overview">
+            <AdminOverviewTab />
+          </TabsContent>
+
           <TabsContent value="users">
             <AdminUsersTab onRefresh={fetchStats} />
           </TabsContent>
 
           <TabsContent value="jobs">
             <AdminJobsTab onRefresh={fetchStats} />
+          </TabsContent>
+
+          <TabsContent value="interviews">
+            <AdminInterviewsTab onRefresh={fetchStats} />
           </TabsContent>
 
           <TabsContent value="analytics">
