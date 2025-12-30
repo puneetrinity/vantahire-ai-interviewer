@@ -135,7 +135,8 @@ const handler = async (req: Request): Promise<Response> => {
     const displayName = candidateName || "Candidate";
 
     // Send WhatsApp message using Aisensy API
-    // Aisensy uses template-based messaging for WhatsApp Business API
+    // Template: vantahire_interview_invitation (APPROVED)
+    // Parameters: [candidateName, jobRole, companyName, interviewUrl, companyName]
     const whatsappResponse = await fetch("https://backend.aisensy.com/campaign/t1/api/v2", {
       method: "POST",
       headers: {
@@ -143,30 +144,18 @@ const handler = async (req: Request): Promise<Response> => {
       },
       body: JSON.stringify({
         apiKey: AISENSY_API_KEY,
-        campaignName: "interview_invitation",
+        campaignName: "vantahire_interview_invitation",
         destination: cleanPhone,
         userName: displayName,
         templateParams: [
-          displayName,
-          jobRole,
-          companyName,
-          interviewUrl
+          displayName,       // Hi [Prafulla Deori],
+          jobRole,           // [Technical Recruiter] role
+          companyName,       // at [Vantahire.com]
+          interviewUrl,      // [zoom.in/abc] link
+          companyName        // [Vantahire] Team sign-off
         ],
         source: "Vantahire",
-        media: {},
-        buttons: [
-          {
-            type: "url",
-            sub_type: "url",
-            index: 0,
-            parameters: [
-              {
-                type: "text",
-                text: interviewUrl
-              }
-            ]
-          }
-        ]
+        media: {}
       }),
     });
 
