@@ -634,6 +634,7 @@ export type Database = {
       get_candidate_interview_safe: {
         Args: { p_interview_id: string }
         Returns: {
+          candidate_name: string
           candidate_notes: string
           candidate_resume_url: string
           completed_at: string

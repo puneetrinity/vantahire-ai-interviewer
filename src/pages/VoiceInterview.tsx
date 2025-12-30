@@ -57,6 +57,7 @@ interface Interview {
   expires_at: string | null;
   candidate_resume_url: string | null;
   candidate_notes: string | null;
+  candidate_name: string | null;
 }
 
 const ELEVENLABS_AGENT_ID = "agent_3501kdkg4t5qfppvw6h1ve94teyq";
@@ -1353,7 +1354,7 @@ const VoiceInterview = () => {
                     <Volume2 className="w-8 h-8" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold">AI Interviewer</h3>
+                    <h3 className="text-lg font-semibold">Raj (AI Interviewer)</h3>
                     <p className="text-sm text-muted-foreground">
                       {!isConnected 
                         ? "Waiting to start..." 
@@ -1385,7 +1386,7 @@ const VoiceInterview = () => {
 
                 <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-background/80 backdrop-blur-sm">
                   <span className="text-sm font-medium">
-                    Candidate
+                    {interview.candidate_name || "Candidate"}
                   </span>
                 </div>
 
