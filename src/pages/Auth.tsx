@@ -54,15 +54,14 @@ const Auth = () => {
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
+            emailRedirectTo: `${window.location.origin}/verify-email`,
             data: { full_name: fullName }
           }
         });
         if (error) throw error;
-        toast({ 
-          title: "Account created!", 
-          description: "You can now sign in." 
-        });
+        // Redirect to verification pending page
+        navigate(`/verify-email?email=${encodeURIComponent(email)}`);
+        return;
       }
     } catch (error: any) {
       console.error("Auth error:", error);
