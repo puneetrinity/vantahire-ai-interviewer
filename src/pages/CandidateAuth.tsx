@@ -24,19 +24,35 @@ const CandidateAuth = () => {
   const [errors, setErrors] = useState<{ email?: string; password?: string; fullName?: string }>({});
 
   useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (session) {
+          // Defer the role check to avoid Supabase deadlock
+          setTimeout(async () => {
+            const { data: role } = await supabase.rpc('get_user_role', { _user_id: session.user.id });
+            if (role === 'candidate') {
+              navigate("/candidate/dashboard");
+            }
+            // Don't redirect non-candidates - they should use recruiter login
+          }, 0);
+        }
+      }
+    );
+
+    // Check for existing session
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Check if user is a candidate
         const { data: role } = await supabase.rpc('get_user_role', { _user_id: session.user.id });
         if (role === 'candidate') {
           navigate("/candidate/dashboard");
-        } else {
-          navigate("/dashboard");
         }
       }
     };
     checkSession();
+
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
   const validateForm = (isSignUp: boolean): boolean => {
@@ -110,7 +126,7 @@ const CandidateAuth = () => {
     try {
       const redirectUrl = `${window.location.origin}/candidate/dashboard`;
       
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -131,7 +147,13 @@ const CandidateAuth = () => {
         return;
       }
       
-      toast.success("Account created! You can now sign in.");
+      // If auto-confirm is enabled, user is already signed in - redirect immediately
+      if (data?.session) {
+        toast.success("Account created successfully!");
+        navigate("/candidate/dashboard");
+      } else {
+        toast.success("Account created! Please check your email to confirm.");
+      }
     } catch (error: any) {
       toast.error("An unexpected error occurred");
     } finally {
