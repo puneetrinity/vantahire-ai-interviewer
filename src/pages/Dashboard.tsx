@@ -110,6 +110,7 @@ const Dashboard = () => {
   });
   const [creating, setCreating] = useState(false);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [resendingWhatsApp, setResendingWhatsApp] = useState<string | null>(null);
   const [profile, setProfile] = useState<RecruiterProfile>({
     company_name: null,
     brand_color: '#6366f1',
@@ -494,6 +495,74 @@ const Dashboard = () => {
       }
     } finally {
       setResendingEmail(null);
+    }
+  };
+
+  const resendWhatsAppInvite = async (interview: Interview) => {
+    // Get the phone number from whatsappMessages
+    const whatsappMessage = whatsappMessages[interview.id];
+    if (!whatsappMessage?.candidate_phone) {
+      toast({
+        variant: "destructive",
+        title: "No Phone Number",
+        description: "This candidate doesn't have a phone number on record."
+      });
+      return;
+    }
+
+    setResendingWhatsApp(interview.id);
+    
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
+      setResendingWhatsApp(null);
+      return;
+    }
+    
+    const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
+    
+    try {
+      const { error } = await supabase.functions.invoke("send-whatsapp-invite", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: {
+          candidatePhone: whatsappMessage.candidate_phone,
+          candidateName: interview.candidate_name,
+          jobRole: interview.job_role,
+          interviewId: interview.id,
+          interviewUrl,
+          companyName: profile.company_name
+        }
+      });
+
+      if (error) {
+        if (error.message?.includes('401') || error.message?.includes('JWT')) {
+          throw new Error("Session expired");
+        }
+        throw error;
+      }
+
+      toast({
+        title: "WhatsApp Sent",
+        description: `Invitation resent to ${whatsappMessage.candidate_phone}`
+      });
+    } catch (error: any) {
+      console.error("Failed to resend WhatsApp:", error);
+      if (error?.message?.includes('Session expired') || error?.message?.includes('401')) {
+        toast({
+          variant: "destructive",
+          title: "Session Expired",
+          description: "Please refresh the page and try again."
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to Send",
+          description: "Could not resend WhatsApp invitation. Please try again."
+        });
+      }
+    } finally {
+      setResendingWhatsApp(null);
     }
   };
 
@@ -912,15 +981,28 @@ const Dashboard = () => {
                         </>
                       )}
                       {interview.status === "pending" && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => resendInviteEmail(interview)}
-                          disabled={resendingEmail === interview.id}
-                          title="Resend invite email"
-                        >
-                          <Mail className={`w-4 h-4 ${resendingEmail === interview.id ? "animate-pulse" : ""}`} />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => resendInviteEmail(interview)}
+                            disabled={resendingEmail === interview.id}
+                            title="Resend invite email"
+                          >
+                            <Mail className={`w-4 h-4 ${resendingEmail === interview.id ? "animate-pulse" : ""}`} />
+                          </Button>
+                          {whatsappMessages[interview.id] && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => resendWhatsAppInvite(interview)}
+                              disabled={resendingWhatsApp === interview.id}
+                              title="Resend WhatsApp invite"
+                            >
+                              <MessageSquare className={`w-4 h-4 text-green-500 ${resendingWhatsApp === interview.id ? "animate-pulse" : ""}`} />
+                            </Button>
+                          )}
+                        </>
                       )}
                       <Button
                         variant="ghost"
