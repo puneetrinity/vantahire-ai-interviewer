@@ -20,7 +20,7 @@ interface AddCandidateToJobDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job: Job | null;
-  onSubmit: (candidate: { email: string; name: string; phone?: string }) => Promise<void>;
+  onSubmit: (candidate: { email: string; name: string; phone: string }) => Promise<void>;
 }
 
 const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandidateToJobDialogProps) => {
@@ -72,23 +72,25 @@ const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandi
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name">Name *</Label>
             <Input
               id="name"
               placeholder="John Doe"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="phone">WhatsApp Number (optional)</Label>
+            <Label htmlFor="phone">WhatsApp Number *</Label>
             <Input
               id="phone"
               type="tel"
               placeholder="+91 98765 43210"
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              required
             />
             <p className="text-xs text-muted-foreground">
               Include country code for WhatsApp invite
@@ -99,7 +101,7 @@ const AddCandidateToJobDialog = ({ open, onOpenChange, job, onSubmit }: AddCandi
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
               Cancel
             </Button>
-            <Button type="submit" variant="hero" disabled={adding || !formData.email} className="flex-1">
+            <Button type="submit" variant="hero" disabled={adding || !formData.email || !formData.name || !formData.phone} className="flex-1">
               {adding ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
