@@ -112,6 +112,8 @@ const VoiceInterview = () => {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const screenshotCountRef = useRef(0);
   const [chatUploadedFile, setChatUploadedFile] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showEndConfirmDialog, setShowEndConfirmDialog] = useState(false);
@@ -308,6 +310,9 @@ const VoiceInterview = () => {
       conversation.endSession();
       if (timerRef.current) {
         clearInterval(timerRef.current);
+      }
+      if (screenshotIntervalRef.current) {
+        clearInterval(screenshotIntervalRef.current);
       }
     };
   }, [id, authLoading, authError, isLinkedToInterview, user]);
@@ -550,11 +555,90 @@ const VoiceInterview = () => {
       mediaRecorder.start(1000); // Collect data every second
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
+      screenshotCountRef.current = 0; // Reset screenshot counter
       console.log("Recording started");
     } catch (error) {
       console.error("Failed to start recording:", error);
     }
   }, []);
+
+  // Capture screenshot from video and upload to storage
+  const captureScreenshot = useCallback(async () => {
+    if (!videoRef.current || !id) {
+      console.log("No video element or interview ID for screenshot");
+      return;
+    }
+
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.error("Could not get canvas context");
+        return;
+      }
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to blob
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.8);
+      });
+      
+      if (!blob) {
+        console.error("Failed to create screenshot blob");
+        return;
+      }
+      
+      screenshotCountRef.current += 1;
+      const screenshotNumber = screenshotCountRef.current;
+      const fileName = `${id}/screenshot-${screenshotNumber}-${Date.now()}.jpg`;
+      
+      console.log(`Capturing screenshot ${screenshotNumber}...`);
+      
+      const { error: uploadError } = await supabase.storage
+        .from('interview-documents')
+        .upload(fileName, blob, {
+          contentType: 'image/jpeg',
+        });
+      
+      if (uploadError) {
+        console.error("Failed to upload screenshot:", uploadError);
+        return;
+      }
+      
+      console.log(`Screenshot ${screenshotNumber} uploaded: ${fileName}`);
+    } catch (error) {
+      console.error("Error capturing screenshot:", error);
+    }
+  }, [id]);
+
+  // Start screenshot interval (every 5 minutes)
+  const startScreenshotInterval = useCallback(() => {
+    // Take initial screenshot when interview starts
+    captureScreenshot();
+    
+    // Then take screenshots every 5 minutes (300000ms)
+    screenshotIntervalRef.current = setInterval(() => {
+      captureScreenshot();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    console.log("Screenshot interval started (every 5 minutes)");
+  }, [captureScreenshot]);
+
+  // Stop screenshot interval
+  const stopScreenshotInterval = useCallback(() => {
+    if (screenshotIntervalRef.current) {
+      clearInterval(screenshotIntervalRef.current);
+      screenshotIntervalRef.current = null;
+      console.log("Screenshot interval stopped");
+    }
+    // Take final screenshot
+    captureScreenshot();
+  }, [captureScreenshot]);
 
   const stopRecording = useCallback(async (): Promise<string | null> => {
     return new Promise((resolve) => {
@@ -801,8 +885,9 @@ const VoiceInterview = () => {
         connectionType: "webrtc",
       });
 
-      // Start recording automatically
+      // Start recording and screenshot capture automatically
       startRecording();
+      startScreenshotInterval();
 
       // Send context to the agent after session starts
       const context = buildInterviewContext();
@@ -1000,7 +1085,8 @@ const VoiceInterview = () => {
     // Clear the pending messages array
     pendingMessagesRef.current = [];
 
-    // Stop recording and upload
+    // Stop screenshot interval and recording
+    stopScreenshotInterval();
     const recordingPath = await stopRecording();
     if (recordingPath) {
       toast({
