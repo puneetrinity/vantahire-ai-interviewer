@@ -393,6 +393,7 @@ const Interview = () => {
   return (
     <AppLayout
       fullHeight
+      footer="minimal"
       headerRightContent={
         <div className="text-right">
           <div className="text-sm font-medium text-foreground">{interview.job_role}</div>

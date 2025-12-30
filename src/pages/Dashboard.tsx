@@ -780,6 +780,7 @@ const Dashboard = () => {
 
   return (
     <AppLayout
+      footer="minimal"
       headerRightContent={
         <>
           <Button variant="ghost" size="sm" onClick={() => setSettingsDialogOpen(true)} title="Branding Settings">

@@ -971,7 +971,7 @@ const VoiceInterview = () => {
   // Pre-interview setup screen
   if (showPreInterview && interview.status !== "completed") {
     return (
-      <AppLayout containerClassName="py-12 max-w-2xl pb-24">
+      <AppLayout containerClassName="py-12 max-w-2xl pb-24" footer="minimal">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1069,6 +1069,7 @@ const VoiceInterview = () => {
 
   return (
     <AppLayout
+      footer="minimal"
       headerRightContent={
         <>
           {/* Timer */}
