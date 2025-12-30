@@ -548,7 +548,7 @@ export type Database = {
     Enums: {
       api_key_status: "active" | "revoked" | "expired"
       subscription_status: "free" | "paid" | "enterprise"
-      user_role: "recruiter" | "candidate"
+      user_role: "recruiter" | "candidate" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -678,7 +678,7 @@ export const Constants = {
     Enums: {
       api_key_status: ["active", "revoked", "expired"],
       subscription_status: ["free", "paid", "enterprise"],
-      user_role: ["recruiter", "candidate"],
+      user_role: ["recruiter", "candidate", "admin"],
     },
   },
 } as const
