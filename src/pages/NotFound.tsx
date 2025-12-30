@@ -13,7 +13,7 @@ const NotFound = () => {
   }, [location.pathname]);
 
   return (
-    <AppLayout containerClassName="flex items-center justify-center min-h-[calc(100vh-64px)]">
+    <AppLayout containerClassName="flex items-center justify-center min-h-[calc(100vh-64px)]" showFooter>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
