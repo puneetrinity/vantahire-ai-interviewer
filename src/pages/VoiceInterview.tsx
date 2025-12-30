@@ -1656,10 +1656,42 @@ const VoiceInterview = () => {
                   </div>
                 )}
 
-                <div className="absolute bottom-4 left-4 px-3 py-1 rounded-lg bg-background/80 backdrop-blur-sm">
-                  <span className="text-sm font-medium">
-                    {interview.candidate_name || "Candidate"}
-                  </span>
+                <div className="absolute bottom-4 left-4 flex items-center gap-3">
+                  <div className="px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm">
+                    <span className="text-sm font-medium">
+                      {interview.candidate_name || "Candidate"}
+                    </span>
+                  </div>
+                  
+                  {/* Candidate Voice Level Indicator */}
+                  {isConnected && micEnabled && (
+                    <div className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm">
+                      <Mic className={`w-3.5 h-3.5 ${liveMicLevel > 10 ? "text-accent" : "text-muted-foreground"}`} />
+                      <div className="flex items-end gap-0.5 h-4">
+                        {[...Array(5)].map((_, i) => (
+                          <motion.div
+                            key={i}
+                            className={`w-1 rounded-full ${
+                              liveMicLevel > i * 20 
+                                ? i >= 4 
+                                  ? "bg-destructive" 
+                                  : i >= 3 
+                                    ? "bg-yellow-500" 
+                                    : "bg-accent"
+                                : "bg-muted-foreground/30"
+                            }`}
+                            initial={{ height: 4 }}
+                            animate={{ 
+                              height: liveMicLevel > i * 20 
+                                ? Math.min(4 + (liveMicLevel - i * 20) * 0.6, 16) 
+                                : 4 
+                            }}
+                            transition={{ duration: 0.05 }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Recording indicator */}
