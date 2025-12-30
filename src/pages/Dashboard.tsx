@@ -784,10 +784,12 @@ const Dashboard = () => {
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold text-foreground">InterviewAI</span>
+            <img 
+              src="/vantahire-logo-2026.jpg" 
+              alt="Vantahire" 
+              className="w-9 h-9 rounded-lg object-cover"
+            />
+            <span className="text-xl font-bold text-foreground">Vantahire AI Interview</span>
           </a>
 
           <div className="flex items-center gap-4">
