@@ -310,6 +310,53 @@ export type Database = {
           },
         ]
       }
+      job_applications: {
+        Row: {
+          applied_at: string
+          candidate_id: string
+          cover_letter: string | null
+          id: string
+          job_id: string
+          notes: string | null
+          resume_url: string | null
+          reviewed_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          applied_at?: string
+          candidate_id: string
+          cover_letter?: string | null
+          id?: string
+          job_id: string
+          notes?: string | null
+          resume_url?: string | null
+          reviewed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          applied_at?: string
+          candidate_id?: string
+          cover_letter?: string | null
+          id?: string
+          job_id?: string
+          notes?: string | null
+          resume_url?: string | null
+          reviewed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_applications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jobs: {
         Row: {
           approval_status: string
