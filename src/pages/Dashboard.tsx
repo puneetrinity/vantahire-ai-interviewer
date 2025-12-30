@@ -7,6 +7,7 @@ import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
 import WhatsAppStatusBadge from "@/components/WhatsAppStatusBadge";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
+import AppHeader from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +21,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  Zap,
   Plus,
   LogOut,
   Users,
@@ -780,19 +780,9 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2">
-            <img 
-              src="/vantahire-logo-2026.jpg" 
-              alt="Vantahire" 
-              className="w-9 h-9 rounded-lg object-cover"
-            />
-            <span className="text-xl font-bold text-foreground">Vantahire AI Interview</span>
-          </a>
-
-          <div className="flex items-center gap-4">
+      <AppHeader 
+        rightContent={
+          <>
             <Button variant="ghost" size="sm" onClick={() => setSettingsDialogOpen(true)} title="Branding Settings">
               <Settings className="w-4 h-4" />
             </Button>
@@ -802,9 +792,9 @@ const Dashboard = () => {
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               <LogOut className="w-4 h-4" />
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="container mx-auto px-4 py-8">
         {/* Stats */}
