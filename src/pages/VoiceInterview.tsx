@@ -13,6 +13,7 @@ import { validateMessageContent, validateNotes } from "@/lib/validateInput";
 import AppLayout from "@/components/AppLayout";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import PageErrorState from "@/components/PageErrorState";
+import AudioWaveform from "@/components/AudioWaveform";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1616,7 +1617,7 @@ const VoiceInterview = () => {
                   }`}>
                     <Volume2 className="w-8 h-8" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-lg font-semibold">Raj (AI Interviewer)</h3>
                     <p className="text-sm text-muted-foreground">
                       {!isConnected 
@@ -1626,6 +1627,14 @@ const VoiceInterview = () => {
                           : "Listening..."}
                     </p>
                   </div>
+                  {/* Audio Waveform Visualization */}
+                  {isConnected && (
+                    <AudioWaveform 
+                      isActive={isSpeaking} 
+                      barCount={7}
+                      className="ml-auto"
+                    />
+                  )}
                 </div>
               </motion.div>
 
