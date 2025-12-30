@@ -8,6 +8,7 @@ import JobsTab from "@/components/JobsTab";
 import WhatsAppStatusBadge from "@/components/WhatsAppStatusBadge";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import AppLayout from "@/components/AppLayout";
+import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -769,11 +770,7 @@ const Dashboard = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
-    );
+    return <PageLoadingSkeleton variant="dashboard" showFooter />;
   }
 
   const selectedSummary = selectedInterview ? parseSummary(selectedInterview.transcript_summary) : null;

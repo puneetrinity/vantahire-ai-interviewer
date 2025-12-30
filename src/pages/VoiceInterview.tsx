@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { validateMessageContent, validateNotes } from "@/lib/validateInput";
 import AppLayout from "@/components/AppLayout";
+import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -943,14 +944,7 @@ const VoiceInterview = () => {
 
   // Show loading while auth is in progress
   if (authLoading || loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading interview...
-        </div>
-      </div>
-    );
+    return <PageLoadingSkeleton variant="form" showFooter />;
   }
 
   if (error || authError || !interview) {
