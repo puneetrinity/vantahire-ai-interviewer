@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
+import { jsPDF } from "jspdf";
 import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
 import ApplicationsTab from "@/components/ApplicationsTab";
@@ -22,7 +23,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Plus,
   LogOut,
@@ -47,9 +56,10 @@ import {
   RefreshCw,
   Share2,
   Download,
+  FileDown,
+  Send,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-
 interface Interview {
   id: string;
   candidate_email: string;
@@ -115,6 +125,9 @@ const Dashboard = () => {
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [resendingWhatsApp, setResendingWhatsApp] = useState<string | null>(null);
   const [regeneratingSummary, setRegeneratingSummary] = useState<string | null>(null);
+  const [emailShareDialogOpen, setEmailShareDialogOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [profile, setProfile] = useState<RecruiterProfile>({
     company_name: null,
     brand_color: '#6366f1',
@@ -1117,11 +1130,18 @@ const Dashboard = () => {
               </DialogTitle>
               {selectedInterview && selectedSummary && (
                 <div className="flex items-center gap-2 mr-6">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
+                  {/* Share Dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Share2 className="w-4 h-4" />
+                        Share
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
 Role: ${selectedInterview.job_role}
 Overall Score: ${selectedInterview.score || 'N/A'}/10
 
@@ -1144,29 +1164,208 @@ ${selectedSummary.areasForImprovement.map(a => `• ${a}`).join('\n')}
 Key Takeaways:
 ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
 
-                      if (navigator.share) {
-                        navigator.share({
-                          title: `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}`,
-                          text: summaryText,
-                        });
-                      } else {
-                        navigator.clipboard.writeText(summaryText);
-                        toast({
-                          title: "Copied to Clipboard",
-                          description: "Interview summary has been copied to your clipboard.",
-                        });
-                      }
-                    }}
-                    className="gap-2"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    Share
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
+                          navigator.clipboard.writeText(summaryText);
+                          toast({
+                            title: "Copied to Clipboard",
+                            description: "Interview summary has been copied to your clipboard.",
+                          });
+                        }}
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        Copy to Clipboard
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setEmailShareDialogOpen(true)}>
+                        <Mail className="w-4 h-4 mr-2" />
+                        Send via Email
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Download Dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Download className="w-4 h-4" />
+                        Download
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          // Generate PDF
+                          const doc = new jsPDF();
+                          const candidateName = selectedInterview.candidate_name || selectedInterview.candidate_email;
+                          const pageWidth = doc.internal.pageSize.getWidth();
+                          let yPos = 20;
+                          const margin = 20;
+                          const contentWidth = pageWidth - 2 * margin;
+
+                          // Header
+                          doc.setFillColor(139, 92, 246);
+                          doc.rect(0, 0, pageWidth, 40, 'F');
+                          doc.setTextColor(255, 255, 255);
+                          doc.setFontSize(22);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Interview Summary", pageWidth / 2, 25, { align: "center" });
+                          doc.setFontSize(10);
+                          doc.setFont("helvetica", "normal");
+                          doc.text(profile.company_name || "VantaHire", pageWidth / 2, 34, { align: "center" });
+
+                          yPos = 55;
+
+                          // Candidate Info
+                          doc.setTextColor(31, 41, 55);
+                          doc.setFontSize(16);
+                          doc.setFont("helvetica", "bold");
+                          doc.text(candidateName, margin, yPos);
+                          yPos += 7;
+                          doc.setFontSize(11);
+                          doc.setFont("helvetica", "normal");
+                          doc.setTextColor(107, 114, 128);
+                          doc.text(selectedInterview.job_role, margin, yPos);
+
+                          // Score
+                          if (selectedInterview.score) {
+                            doc.setTextColor(139, 92, 246);
+                            doc.setFontSize(24);
+                            doc.setFont("helvetica", "bold");
+                            doc.text(`${selectedInterview.score}/10`, pageWidth - margin, yPos - 5, { align: "right" });
+                            doc.setFontSize(9);
+                            doc.setFont("helvetica", "normal");
+                            doc.text("Overall Score", pageWidth - margin, yPos + 2, { align: "right" });
+                          }
+
+                          yPos += 15;
+
+                          // AI Summary Section
+                          doc.setFillColor(250, 245, 255);
+                          doc.roundedRect(margin, yPos, contentWidth, 35, 3, 3, 'F');
+                          yPos += 10;
+                          doc.setTextColor(139, 92, 246);
+                          doc.setFontSize(12);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("AI Summary", margin + 5, yPos);
+                          yPos += 7;
+                          doc.setTextColor(75, 85, 99);
+                          doc.setFontSize(10);
+                          doc.setFont("helvetica", "normal");
+                          const summaryLines = doc.splitTextToSize(selectedSummary.summary, contentWidth - 10);
+                          doc.text(summaryLines.slice(0, 3), margin + 5, yPos);
+                          yPos += 28;
+
+                          // Recommendation
+                          doc.setFillColor(248, 248, 252);
+                          doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'F');
+                          yPos += 10;
+                          doc.setTextColor(31, 41, 55);
+                          doc.setFontSize(12);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Recommendation", margin + 5, yPos);
+                          yPos += 7;
+                          doc.setTextColor(75, 85, 99);
+                          doc.setFontSize(10);
+                          doc.setFont("helvetica", "normal");
+                          const recLines = doc.splitTextToSize(selectedSummary.recommendation, contentWidth - 10);
+                          doc.text(recLines.slice(0, 2), margin + 5, yPos);
+                          yPos += 18;
+
+                          // Scores
+                          doc.setTextColor(31, 41, 55);
+                          doc.setFontSize(12);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Detailed Scores", margin, yPos);
+                          yPos += 10;
+
+                          const scoreWidth = (contentWidth - 10) / 3;
+                          const scores = [
+                            { label: "Communication", score: selectedSummary.communicationScore },
+                            { label: "Technical", score: selectedSummary.technicalScore },
+                            { label: "Culture Fit", score: selectedSummary.cultureFitScore },
+                          ];
+
+                          scores.forEach((item, idx) => {
+                            const xPos = margin + idx * (scoreWidth + 5);
+                            doc.setFillColor(248, 248, 252);
+                            doc.roundedRect(xPos, yPos, scoreWidth, 25, 3, 3, 'F');
+                            doc.setTextColor(31, 41, 55);
+                            doc.setFontSize(16);
+                            doc.setFont("helvetica", "bold");
+                            doc.text(`${item.score}/10`, xPos + scoreWidth / 2, yPos + 12, { align: "center" });
+                            doc.setFontSize(8);
+                            doc.setFont("helvetica", "normal");
+                            doc.setTextColor(107, 114, 128);
+                            doc.text(item.label, xPos + scoreWidth / 2, yPos + 20, { align: "center" });
+                          });
+
+                          yPos += 35;
+
+                          // Strengths
+                          doc.setFillColor(240, 253, 244);
+                          doc.roundedRect(margin, yPos, contentWidth / 2 - 5, 45, 3, 3, 'F');
+                          doc.setTextColor(22, 101, 52);
+                          doc.setFontSize(11);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Strengths", margin + 5, yPos + 10);
+                          doc.setTextColor(75, 85, 99);
+                          doc.setFontSize(9);
+                          doc.setFont("helvetica", "normal");
+                          selectedSummary.strengths.slice(0, 3).forEach((s, i) => {
+                            const lines = doc.splitTextToSize(`• ${s}`, contentWidth / 2 - 15);
+                            doc.text(lines[0], margin + 5, yPos + 18 + i * 8);
+                          });
+
+                          // Areas for Improvement
+                          const impX = margin + contentWidth / 2 + 5;
+                          doc.setFillColor(255, 251, 235);
+                          doc.roundedRect(impX, yPos, contentWidth / 2 - 5, 45, 3, 3, 'F');
+                          doc.setTextColor(146, 64, 14);
+                          doc.setFontSize(11);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Areas for Improvement", impX + 5, yPos + 10);
+                          doc.setTextColor(75, 85, 99);
+                          doc.setFontSize(9);
+                          doc.setFont("helvetica", "normal");
+                          selectedSummary.areasForImprovement.slice(0, 3).forEach((a, i) => {
+                            const lines = doc.splitTextToSize(`• ${a}`, contentWidth / 2 - 15);
+                            doc.text(lines[0], impX + 5, yPos + 18 + i * 8);
+                          });
+
+                          yPos += 55;
+
+                          // Key Takeaways
+                          doc.setFillColor(248, 248, 252);
+                          doc.roundedRect(margin, yPos, contentWidth, 40, 3, 3, 'F');
+                          doc.setTextColor(31, 41, 55);
+                          doc.setFontSize(11);
+                          doc.setFont("helvetica", "bold");
+                          doc.text("Key Takeaways", margin + 5, yPos + 10);
+                          doc.setTextColor(75, 85, 99);
+                          doc.setFontSize(9);
+                          doc.setFont("helvetica", "normal");
+                          selectedSummary.keyTakeaways.slice(0, 3).forEach((t, i) => {
+                            const lines = doc.splitTextToSize(`• ${t}`, contentWidth - 15);
+                            doc.text(lines[0], margin + 5, yPos + 18 + i * 8);
+                          });
+
+                          // Footer
+                          doc.setTextColor(156, 163, 175);
+                          doc.setFontSize(8);
+                          doc.text(`Generated by VantaHire on ${new Date().toLocaleDateString()}`, pageWidth / 2, 285, { align: "center" });
+
+                          doc.save(`interview-summary-${candidateName.replace(/\s+/g, '-').toLowerCase()}.pdf`);
+
+                          toast({
+                            title: "PDF Downloaded",
+                            description: "Interview summary has been downloaded as PDF.",
+                          });
+                        }}
+                      >
+                        <FileDown className="w-4 h-4 mr-2" />
+                        Download as PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
 ================================================================================
 Role: ${selectedInterview.job_role}
 Date: ${selectedInterview.completed_at ? new Date(selectedInterview.completed_at).toLocaleDateString() : 'N/A'}
@@ -1208,26 +1407,27 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}
 Generated by VantaHire
 `;
 
-                      const blob = new Blob([summaryText], { type: 'text/plain' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `interview-summary-${(selectedInterview.candidate_name || selectedInterview.candidate_email).replace(/\s+/g, '-').toLowerCase()}.txt`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      URL.revokeObjectURL(url);
+                          const blob = new Blob([summaryText], { type: 'text/plain' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `interview-summary-${(selectedInterview.candidate_name || selectedInterview.candidate_email).replace(/\s+/g, '-').toLowerCase()}.txt`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
 
-                      toast({
-                        title: "Downloaded",
-                        description: "Interview summary has been downloaded.",
-                      });
-                    }}
-                    className="gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </Button>
+                          toast({
+                            title: "Downloaded",
+                            description: "Interview summary has been downloaded as text file.",
+                          });
+                        }}
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        Download as Text
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
             </div>
@@ -1394,6 +1594,116 @@ Generated by VantaHire
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Share Dialog */}
+      <Dialog open={emailShareDialogOpen} onOpenChange={setEmailShareDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Share via Email
+            </DialogTitle>
+            <DialogDescription>
+              Send this interview summary to a colleague or team member.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="share-email">Recipient Email</Label>
+              <Input
+                id="share-email"
+                type="email"
+                placeholder="colleague@company.com"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+              />
+            </div>
+            {selectedInterview && selectedSummary && (
+              <div className="p-3 bg-secondary/50 rounded-lg text-sm">
+                <p className="font-medium text-foreground">
+                  {selectedInterview.candidate_name || selectedInterview.candidate_email}
+                </p>
+                <p className="text-muted-foreground">{selectedInterview.job_role}</p>
+                {selectedInterview.score && (
+                  <p className="text-primary font-medium mt-1">Score: {selectedInterview.score}/10</p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmailShareDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!shareEmail || !selectedInterview || !selectedSummary) return;
+                
+                setSendingEmail(true);
+                const accessToken = await getFreshAccessToken();
+                if (!accessToken) {
+                  setSendingEmail(false);
+                  return;
+                }
+
+                try {
+                  const { error } = await supabase.functions.invoke("send-summary-email", {
+                    headers: {
+                      Authorization: `Bearer ${accessToken}`
+                    },
+                    body: {
+                      recipientEmail: shareEmail,
+                      candidateName: selectedInterview.candidate_name || selectedInterview.candidate_email,
+                      jobRole: selectedInterview.job_role,
+                      overallScore: selectedInterview.score,
+                      summary: selectedSummary.summary,
+                      recommendation: selectedSummary.recommendation,
+                      communicationScore: selectedSummary.communicationScore,
+                      technicalScore: selectedSummary.technicalScore,
+                      cultureFitScore: selectedSummary.cultureFitScore,
+                      strengths: selectedSummary.strengths,
+                      areasForImprovement: selectedSummary.areasForImprovement,
+                      keyTakeaways: selectedSummary.keyTakeaways,
+                      senderName: user?.email || 'A recruiter',
+                      companyName: profile.company_name || 'VantaHire',
+                    }
+                  });
+
+                  if (error) throw error;
+
+                  toast({
+                    title: "Email Sent",
+                    description: `Interview summary sent to ${shareEmail}`,
+                  });
+                  setEmailShareDialogOpen(false);
+                  setShareEmail("");
+                } catch (error: any) {
+                  console.error("Failed to send email:", error);
+                  toast({
+                    variant: "destructive",
+                    title: "Failed to Send",
+                    description: error.message || "Could not send the email. Please try again.",
+                  });
+                } finally {
+                  setSendingEmail(false);
+                }
+              }}
+              disabled={!shareEmail || sendingEmail}
+            >
+              {sendingEmail ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Send Email
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
