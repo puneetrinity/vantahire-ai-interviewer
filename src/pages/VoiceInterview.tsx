@@ -88,6 +88,7 @@ const VoiceInterview = () => {
   const [chatMessage, setChatMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [recordSystemAudio, setRecordSystemAudio] = useState(false);
+  const [isCapturingSystemAudio, setIsCapturingSystemAudio] = useState(false);
   
   // Device test states
   const [isTestingDevices, setIsTestingDevices] = useState(false);
@@ -576,6 +577,7 @@ const VoiceInterview = () => {
           const systemAudioTracks = systemAudioStream.getAudioTracks();
           if (systemAudioTracks.length > 0) {
             console.log("System audio captured successfully");
+            setIsCapturingSystemAudio(true);
             const systemSource = audioContext.createMediaStreamSource(
               new MediaStream([systemAudioTracks[0]])
             );
@@ -586,6 +588,7 @@ const VoiceInterview = () => {
           }
         } catch (displayError) {
           console.log("Could not capture system audio:", displayError);
+          setIsCapturingSystemAudio(false);
           // Continue without system audio
         }
       }
@@ -741,6 +744,7 @@ const VoiceInterview = () => {
             systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
             systemAudioStreamRef.current = null;
           }
+          setIsCapturingSystemAudio(false);
           combinedStreamRef.current = null;
 
           if (blob.size === 0) {
@@ -1651,9 +1655,18 @@ const VoiceInterview = () => {
 
                 {/* Recording indicator */}
                 {isRecording && (
-                  <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-destructive/90 backdrop-blur-sm">
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    <span className="text-xs font-medium text-white">REC</span>
+                  <div className="absolute top-4 right-4 flex flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-destructive/90 backdrop-blur-sm">
+                      <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                      <span className="text-xs font-medium text-white">REC</span>
+                    </div>
+                    {/* System Audio Indicator */}
+                    {isCapturingSystemAudio && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/90 backdrop-blur-sm">
+                        <Volume2 className="w-3 h-3 text-primary-foreground" />
+                        <span className="text-xs font-medium text-primary-foreground">AI Audio</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
