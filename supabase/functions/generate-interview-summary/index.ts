@@ -426,6 +426,79 @@ Respond ONLY with valid JSON, no additional text.`;
       console.log("Email notification sent:", emailSent);
     }
 
+    // Auto-trigger video transcription if recording exists
+    if (interview.recording_url) {
+      console.log("Auto-triggering video transcription for recording:", interview.recording_url);
+      try {
+        const transcribeResponse = await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/transcribe-video`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+            },
+            body: JSON.stringify({
+              interviewId,
+              recordingPath: interview.recording_url
+            })
+          }
+        );
+        
+        if (transcribeResponse.ok) {
+          const transcribeData = await transcribeResponse.json();
+          console.log("Video transcription completed:", transcribeData.transcription?.substring(0, 100));
+          
+          // Now auto-generate final recommendation using DeepSeek
+          console.log("Auto-triggering final recommendation generation...");
+          const chatTranscriptText = messages
+            .map((msg: any) => `${msg.role === "user" ? "Candidate" : "AI Interviewer"}: ${msg.content}`)
+            .join("\n\n");
+          
+          const recommendationResponse = await fetch(
+            `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-final-recommendation`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+              },
+              body: JSON.stringify({
+                videoTranscription: transcribeData.transcription || "",
+                chatTranscript: chatTranscriptText,
+                candidateName: interview.candidate_name || interview.candidate_email,
+                jobRole: interview.job_role,
+                existingSummary: summary
+              })
+            }
+          );
+          
+          if (recommendationResponse.ok) {
+            const recommendationData = await recommendationResponse.json();
+            console.log("Final recommendation generated:", recommendationData.recommendation?.hiringRecommendation);
+            
+            // Store the final recommendation in candidate_notes
+            const existingNotes = interview.candidate_notes ? JSON.parse(interview.candidate_notes) : {};
+            existingNotes.final_recommendation = recommendationData.recommendation;
+            existingNotes.recommendation_generated_at = new Date().toISOString();
+            
+            await supabase
+              .from('interviews')
+              .update({ candidate_notes: JSON.stringify(existingNotes) })
+              .eq('id', interviewId);
+              
+            console.log("Final recommendation stored successfully");
+          } else {
+            console.error("Failed to generate final recommendation:", await recommendationResponse.text());
+          }
+        } else {
+          console.error("Failed to transcribe video:", await transcribeResponse.text());
+        }
+      } catch (transcribeError) {
+        console.error("Error during auto-transcription:", transcribeError);
+      }
+    }
+
     return new Response(
       JSON.stringify({ 
         success: true, 

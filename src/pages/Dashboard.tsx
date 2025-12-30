@@ -791,6 +791,25 @@ const Dashboard = () => {
     setFinalRecommendation(null);
     await fetchTranscript(interview.id);
     
+    // Load stored video transcription and final recommendation from candidate_notes
+    if (interview.candidate_notes) {
+      try {
+        const notes = JSON.parse(interview.candidate_notes);
+        if (notes.video_transcription) {
+          setVideoTranscription(notes.video_transcription);
+          setShowTranscriptComparison(true);
+        }
+        if (notes.video_transcription_detailed) {
+          setVideoTranscriptionDetailed(notes.video_transcription_detailed);
+        }
+        if (notes.final_recommendation) {
+          setFinalRecommendation(notes.final_recommendation);
+        }
+      } catch (e) {
+        console.log("Could not parse candidate_notes as JSON");
+      }
+    }
+    
     // Load recording URL if available
     if (interview.recording_url) {
       setLoadingRecording(true);

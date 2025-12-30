@@ -43,12 +43,12 @@ serve(async (req) => {
       throw new Error("At least one transcript is required");
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
+    if (!DEEPSEEK_API_KEY) {
+      throw new Error("DEEPSEEK_API_KEY is not configured");
     }
 
-    console.log("Generating final recommendation for:", candidateName, jobRole);
+    console.log("Generating final recommendation using DeepSeek for:", candidateName, jobRole);
 
     const systemPrompt = `You are an expert HR analyst and interview evaluator. Your task is to analyze interview transcripts and provide a comprehensive, data-driven hiring recommendation.
 
@@ -111,24 +111,26 @@ Please provide your analysis in the following JSON format:
 
 Return ONLY valid JSON, no other text.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "deepseek-chat",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
+        temperature: 0.7,
+        max_tokens: 4000,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+      console.error("DeepSeek API error:", response.status, errorText);
       
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
@@ -136,23 +138,23 @@ Return ONLY valid JSON, no other text.`;
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required, please add funds to your Lovable AI workspace." }), {
+      if (response.status === 402 || response.status === 401) {
+        return new Response(JSON.stringify({ error: "DeepSeek API key invalid or payment required." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error(`AI gateway error: ${response.status}`);
+      throw new Error(`DeepSeek API error: ${response.status}`);
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
-      throw new Error("No content in AI response");
+      throw new Error("No content in DeepSeek response");
     }
 
-    console.log("Raw AI response:", content);
+    console.log("Raw DeepSeek response:", content);
 
     // Parse JSON from response (handle markdown code blocks)
     let recommendation: FinalRecommendation;
@@ -169,7 +171,7 @@ Return ONLY valid JSON, no other text.`;
       }
       recommendation = JSON.parse(jsonStr.trim());
     } catch (parseError) {
-      console.error("Failed to parse AI response:", parseError);
+      console.error("Failed to parse DeepSeek response:", parseError);
       // Return a fallback recommendation
       recommendation = {
         overallAssessment: "Analysis completed but structured output could not be generated. Please review the transcripts manually.",
