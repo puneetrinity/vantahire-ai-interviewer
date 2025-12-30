@@ -115,10 +115,17 @@ const AdminDashboard = () => {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-primary" />
+            <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+              <Shield className="w-6 h-6 text-primary" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold text-foreground">Admin Dashboard</h1>
-              <p className="text-sm text-muted-foreground">Manage your platform</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-foreground">Admin Dashboard</h1>
+                <span className="px-2 py-0.5 text-xs font-semibold bg-primary text-primary-foreground rounded-full uppercase tracking-wide">
+                  Admin
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">Platform Management Console</p>
             </div>
           </div>
           <Button variant="outline" onClick={handleSignOut}>
