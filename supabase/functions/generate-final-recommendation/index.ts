@@ -31,6 +31,155 @@ interface FinalRecommendation {
   suggestedNextSteps: string[];
 }
 
+interface AIResponse {
+  content: string;
+  provider: string;
+}
+
+async function callGemini(systemPrompt: string, userPrompt: string): Promise<AIResponse | null> {
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+  if (!GEMINI_API_KEY) {
+    console.log("GEMINI_API_KEY not configured, skipping Gemini");
+    return null;
+  }
+
+  console.log("Attempting Gemini API...");
+  
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 4000,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Gemini API error:", response.status, errorText);
+    
+    if (response.status === 429 || response.status === 503) {
+      console.log("Gemini rate limited or unavailable, will try fallback");
+      return null;
+    }
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      console.error("Gemini API key invalid or unauthorized");
+      return null;
+    }
+    return null;
+  }
+
+  const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!content) {
+    console.error("No content in Gemini response");
+    return null;
+  }
+
+  return { content, provider: "Gemini" };
+}
+
+async function callLovableAI(systemPrompt: string, userPrompt: string): Promise<AIResponse | null> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!LOVABLE_API_KEY) {
+    console.log("LOVABLE_API_KEY not configured, skipping Lovable AI");
+    return null;
+  }
+
+  console.log("Attempting Lovable AI (fallback)...");
+  
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Lovable AI error:", response.status, errorText);
+    
+    if (response.status === 429) {
+      throw new Error("All AI providers rate limited. Please try again later.");
+    }
+    if (response.status === 402) {
+      throw new Error("AI credits exhausted. Please add funds to continue.");
+    }
+    return null;
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    console.error("No content in Lovable AI response");
+    return null;
+  }
+
+  return { content, provider: "Lovable AI" };
+}
+
+function parseRecommendation(content: string): FinalRecommendation {
+  let jsonStr = content.trim();
+  // Remove markdown code blocks if present
+  if (jsonStr.startsWith("```json")) {
+    jsonStr = jsonStr.slice(7);
+  } else if (jsonStr.startsWith("```")) {
+    jsonStr = jsonStr.slice(3);
+  }
+  if (jsonStr.endsWith("```")) {
+    jsonStr = jsonStr.slice(0, -3);
+  }
+  return JSON.parse(jsonStr.trim());
+}
+
+function getFallbackRecommendation(): FinalRecommendation {
+  return {
+    overallAssessment: "Analysis completed but structured output could not be generated. Please review the transcripts manually.",
+    hiringRecommendation: "Proceed with Caution",
+    confidenceScore: 50,
+    keyFindings: {
+      consistencies: ["Transcript analysis available"],
+      discrepancies: ["Unable to perform detailed comparison"]
+    },
+    communicationAnalysis: {
+      clarity: 5,
+      confidence: 5,
+      professionalTone: 5,
+      observations: ["Manual review recommended"]
+    },
+    technicalAssessment: {
+      score: 5,
+      strengths: ["Requires manual evaluation"],
+      gaps: ["Requires manual evaluation"]
+    },
+    cultureFitIndicators: ["Requires manual evaluation"],
+    redFlags: [],
+    greenFlags: [],
+    finalVerdict: "Please review the interview transcripts manually for a complete assessment.",
+    suggestedNextSteps: ["Review video recording", "Conduct follow-up interview if needed"]
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -43,12 +192,7 @@ serve(async (req) => {
       throw new Error("At least one transcript is required");
     }
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
-
-    console.log("Generating final recommendation using Gemini for:", candidateName, jobRole);
+    console.log("Generating final recommendation for:", candidateName, jobRole);
 
     const systemPrompt = `You are an expert HR analyst and interview evaluator. Your task is to analyze interview transcripts and provide a comprehensive, data-driven hiring recommendation.
 
@@ -111,109 +255,47 @@ Please provide your analysis in the following JSON format:
 
 Return ONLY valid JSON, no other text.`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4000,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 400 || response.status === 401 || response.status === 403) {
-        return new Response(JSON.stringify({ error: "Gemini API key invalid or unauthorized." }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`Gemini API error: ${response.status}`);
+    // Try Gemini first, then fall back to Lovable AI
+    let aiResponse = await callGemini(systemPrompt, userPrompt);
+    
+    if (!aiResponse) {
+      console.log("Gemini failed, falling back to Lovable AI...");
+      aiResponse = await callLovableAI(systemPrompt, userPrompt);
     }
 
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
-      throw new Error("No content in Gemini response");
+    if (!aiResponse) {
+      throw new Error("All AI providers failed. Please try again later.");
     }
 
-    console.log("Raw Gemini response:", content);
+    console.log(`Successfully got response from ${aiResponse.provider}`);
+    console.log("Raw AI response:", aiResponse.content);
 
-    // Parse JSON from response (handle markdown code blocks)
+    // Parse JSON from response
     let recommendation: FinalRecommendation;
     try {
-      let jsonStr = content.trim();
-      // Remove markdown code blocks if present
-      if (jsonStr.startsWith("```json")) {
-        jsonStr = jsonStr.slice(7);
-      } else if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.slice(3);
-      }
-      if (jsonStr.endsWith("```")) {
-        jsonStr = jsonStr.slice(0, -3);
-      }
-      recommendation = JSON.parse(jsonStr.trim());
+      recommendation = parseRecommendation(aiResponse.content);
     } catch (parseError) {
-      console.error("Failed to parse Gemini response:", parseError);
-      // Return a fallback recommendation
-      recommendation = {
-        overallAssessment: "Analysis completed but structured output could not be generated. Please review the transcripts manually.",
-        hiringRecommendation: "Proceed with Caution",
-        confidenceScore: 50,
-        keyFindings: {
-          consistencies: ["Transcript analysis available"],
-          discrepancies: ["Unable to perform detailed comparison"]
-        },
-        communicationAnalysis: {
-          clarity: 5,
-          confidence: 5,
-          professionalTone: 5,
-          observations: ["Manual review recommended"]
-        },
-        technicalAssessment: {
-          score: 5,
-          strengths: ["Requires manual evaluation"],
-          gaps: ["Requires manual evaluation"]
-        },
-        cultureFitIndicators: ["Requires manual evaluation"],
-        redFlags: [],
-        greenFlags: [],
-        finalVerdict: "Please review the interview transcripts manually for a complete assessment.",
-        suggestedNextSteps: ["Review video recording", "Conduct follow-up interview if needed"]
-      };
+      console.error(`Failed to parse ${aiResponse.provider} response:`, parseError);
+      recommendation = getFallbackRecommendation();
     }
 
     console.log("Generated recommendation:", recommendation);
 
-    return new Response(JSON.stringify({ recommendation }), {
+    return new Response(JSON.stringify({ recommendation, provider: aiResponse.provider }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error) {
     console.error("Error generating recommendation:", error);
+    
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const status = errorMessage.includes("rate limited") ? 429 : 
+                   errorMessage.includes("credits") ? 402 : 500;
+    
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: errorMessage }),
       {
-        status: 500,
+        status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
