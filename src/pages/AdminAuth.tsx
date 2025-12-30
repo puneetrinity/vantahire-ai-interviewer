@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Lock, User, Shield, Key } from "lucide-react";
+import { Mail, Lock, User, Shield, Key, ArrowLeft } from "lucide-react";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 
-type AuthView = "login" | "signup";
+type AuthView = "login" | "signup" | "forgot-password";
 
 const AdminAuth = () => {
   const [view, setView] = useState<AuthView>("login");
@@ -111,6 +111,76 @@ const AdminAuth = () => {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      
+      if (error) throw error;
+      
+      toast({ 
+        title: "Check your email", 
+        description: "We've sent you a password reset link." 
+      });
+      setView("login");
+    } catch (error: any) {
+      console.error("Password reset error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to send reset email"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderForgotPasswordForm = () => (
+    <>
+      <button
+        type="button"
+        onClick={() => setView("login")}
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors mb-4"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to sign in
+      </button>
+      
+      <h2 className="text-2xl font-bold text-foreground text-center mb-2">
+        Reset Password
+      </h2>
+      <p className="text-muted-foreground text-center mb-6">
+        Enter your email and we'll send you a reset link
+      </p>
+
+      <form onSubmit={handleForgotPassword} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              id="email"
+              type="email"
+              placeholder="admin@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="pl-10"
+              required
+            />
+          </div>
+        </div>
+
+        <Button type="submit" variant="hero" className="w-full" disabled={loading}>
+          {loading ? "Sending..." : "Send Reset Link"}
+        </Button>
+      </form>
+    </>
+  );
+
   return (
     <div className="min-h-screen gradient-hero flex items-center justify-center p-4">
       <motion.div
@@ -126,101 +196,116 @@ const AdminAuth = () => {
 
         {/* Card */}
         <div className="bg-card rounded-2xl border border-border shadow-card p-8">
-          <h2 className="text-2xl font-bold text-foreground text-center mb-2">
-            {view === "login" ? "Admin Login" : "Admin Registration"}
-          </h2>
-          <p className="text-muted-foreground text-center mb-6">
-            {view === "login" 
-              ? "Sign in to access admin dashboard" 
-              : "Create an admin account with your secret code"}
-          </p>
+          {view === "forgot-password" ? renderForgotPasswordForm() : (
+            <>
+              <h2 className="text-2xl font-bold text-foreground text-center mb-2">
+                {view === "login" ? "Admin Login" : "Admin Registration"}
+              </h2>
+              <p className="text-muted-foreground text-center mb-6">
+                {view === "login" 
+                  ? "Sign in to access admin dashboard" 
+                  : "Create an admin account with your secret code"}
+              </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {view === "signup" && (
-              <>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {view === "signup" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="signupCode">Admin Signup Code</Label>
+                      <div className="relative">
+                        <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="signupCode"
+                          type="password"
+                          placeholder="Enter secret code"
+                          value={signupCode}
+                          onChange={(e) => setSignupCode(e.target.value)}
+                          className="pl-10"
+                          required={view === "signup"}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="fullName">Full Name</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="fullName"
+                          type="text"
+                          placeholder="John Doe"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="pl-10"
+                          required={view === "signup"}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div className="space-y-2">
-                  <Label htmlFor="signupCode">Admin Signup Code</Label>
+                  <Label htmlFor="email">Email</Label>
                   <div className="relative">
-                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
-                      id="signupCode"
+                      id="email"
+                      type="email"
+                      placeholder="admin@company.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    {view === "login" && (
+                      <button
+                        type="button"
+                        onClick={() => setView("forgot-password")}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="password"
                       type="password"
-                      placeholder="Enter secret code"
-                      value={signupCode}
-                      onChange={(e) => setSignupCode(e.target.value)}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       className="pl-10"
-                      required={view === "signup"}
+                      required
+                      minLength={6}
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="fullName">Full Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="fullName"
-                      type="text"
-                      placeholder="John Doe"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      className="pl-10"
-                      required={view === "signup"}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
+                <Button type="submit" variant="hero" className="w-full" disabled={loading}>
+                  {loading ? "Please wait..." : view === "login" ? "Sign In" : "Create Admin Account"}
+                </Button>
+              </form>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  required
-                />
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => setView(view === "login" ? "signup" : "login")}
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  {view === "login" 
+                    ? "Have a signup code? Create admin account" 
+                    : "Already have an account? Sign in"}
+                </button>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                  required
-                  minLength={6}
-                />
-              </div>
-            </div>
-
-            <Button type="submit" variant="hero" className="w-full" disabled={loading}>
-              {loading ? "Please wait..." : view === "login" ? "Sign In" : "Create Admin Account"}
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => setView(view === "login" ? "signup" : "login")}
-              className="text-sm text-muted-foreground hover:text-primary transition-colors"
-            >
-              {view === "login" 
-                ? "Have a signup code? Create admin account" 
-                : "Already have an account? Sign in"}
-            </button>
-          </div>
+            </>
+          )}
         </div>
 
         <p className="text-center text-sm text-muted-foreground mt-4">
