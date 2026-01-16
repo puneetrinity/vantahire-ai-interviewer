@@ -99,8 +99,8 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Run database migrations
-        run: npx prisma migrate deploy
+      - name: Push database schema
+        run: npx prisma db push --skip-generate
 
       - name: Seed test data
         run: npm run db:seed
