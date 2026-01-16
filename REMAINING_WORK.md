@@ -66,6 +66,7 @@ MIGRATION_VERIFY=1 npm run test:migration
 
 **What it validates:**
 - Row counts match expected values per table
+- Interview URLs include tokens
 - Interview session tokens not expired
 
 ---
