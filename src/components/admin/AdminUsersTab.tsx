@@ -1,16 +1,16 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { admin as adminApi, type AdminUser } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -28,139 +28,67 @@ import { Search, Trash2, UserCheck, UserX, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
-interface User {
-  id: string;
-  user_id: string;
-  role: string;
-  created_at: string;
-  email?: string;
-  full_name?: string;
-}
-
 interface AdminUsersTabProps {
   onRefresh: () => void;
 }
 
 export const AdminUsersTab = ({ onRefresh }: AdminUsersTabProps) => {
-  const [recruiters, setRecruiters] = useState<User[]>([]);
-  const [candidates, setCandidates] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  // Fetch recruiters
+  const { data: recruitersData, isLoading: recruitersLoading, refetch: refetchRecruiters } = useQuery({
+    queryKey: ["admin-users", "RECRUITER"],
+    queryFn: () => adminApi.listUsers({ role: "RECRUITER", limit: 100 }),
+  });
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      // Fetch recruiters with profiles
-      const { data: recruiterRoles, error: recruiterError } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('role', 'recruiter');
+  // Fetch candidates
+  const { data: candidatesData, isLoading: candidatesLoading, refetch: refetchCandidates } = useQuery({
+    queryKey: ["admin-users", "CANDIDATE"],
+    queryFn: () => adminApi.listUsers({ role: "CANDIDATE", limit: 100 }),
+  });
 
-      if (recruiterError) throw recruiterError;
+  const recruiters = recruitersData?.data || [];
+  const candidates = candidatesData?.data || [];
 
-      // Fetch recruiter profiles
-      const recruiterIds = recruiterRoles?.map(r => r.user_id) || [];
-      const { data: recruiterProfiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', recruiterIds);
-
-      const recruitersWithProfiles = recruiterRoles?.map(role => {
-        const profile = recruiterProfiles?.find(p => p.id === role.user_id);
-        return {
-          ...role,
-          email: profile?.email || 'N/A',
-          full_name: profile?.full_name || 'N/A'
-        };
-      }) || [];
-
-      setRecruiters(recruitersWithProfiles);
-
-      // Fetch candidates with profiles
-      const { data: candidateRoles, error: candidateError } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('role', 'candidate');
-
-      if (candidateError) throw candidateError;
-
-      const candidateIds = candidateRoles?.map(r => r.user_id) || [];
-      const { data: candidateProfiles } = await supabase
-        .from('candidate_profiles')
-        .select('user_id, email, full_name')
-        .in('user_id', candidateIds);
-
-      const candidatesWithProfiles = candidateRoles?.map(role => {
-        const profile = candidateProfiles?.find(p => p.user_id === role.user_id);
-        return {
-          ...role,
-          email: profile?.email || 'N/A',
-          full_name: profile?.full_name || 'N/A'
-        };
-      }) || [];
-
-      setCandidates(candidatesWithProfiles);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to fetch users"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteUser = async (userId: string, role: string) => {
-    try {
-      // Delete user role
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId);
-
-      if (roleError) throw roleError;
-
-      // Delete associated profile
-      if (role === 'recruiter') {
-        await supabase.from('profiles').delete().eq('id', userId);
-        setRecruiters(prev => prev.filter(r => r.user_id !== userId));
-      } else {
-        await supabase.from('candidate_profiles').delete().eq('user_id', userId);
-        setCandidates(prev => prev.filter(c => c.user_id !== userId));
-      }
-
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: (userId: string) => adminApi.deleteUser(userId),
+    onSuccess: () => {
       toast({
         title: "User deleted",
         description: "The user has been removed from the system"
       });
+      refetchRecruiters();
+      refetchCandidates();
       onRefresh();
-    } catch (error) {
+    },
+    onError: (error: any) => {
       console.error('Error deleting user:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete user"
+        description: error.message || "Failed to delete user"
       });
-    }
+    },
+  });
+
+  const handleRefresh = () => {
+    refetchRecruiters();
+    refetchCandidates();
   };
 
-  const filterUsers = (users: User[]) => {
+  const filterUsers = (users: AdminUser[]) => {
     if (!searchTerm) return users;
     const term = searchTerm.toLowerCase();
-    return users.filter(u => 
-      u.email?.toLowerCase().includes(term) || 
-      u.full_name?.toLowerCase().includes(term)
+    return users.filter(u =>
+      u.email?.toLowerCase().includes(term) ||
+      u.fullName?.toLowerCase().includes(term)
     );
   };
 
-  const renderUserTable = (users: User[], role: string) => (
+  const renderUserTable = (users: AdminUser[], role: string) => (
     <Table>
       <TableHeader>
         <TableRow>
@@ -180,10 +108,10 @@ export const AdminUsersTab = ({ onRefresh }: AdminUsersTabProps) => {
         ) : (
           filterUsers(users).map((user) => (
             <TableRow key={user.id}>
-              <TableCell className="font-medium">{user.full_name}</TableCell>
+              <TableCell className="font-medium">{user.fullName || 'N/A'}</TableCell>
               <TableCell>{user.email}</TableCell>
               <TableCell>
-                {format(new Date(user.created_at), 'MMM d, yyyy')}
+                {format(new Date(user.createdAt), 'MMM d, yyyy')}
               </TableCell>
               <TableCell className="text-right">
                 <AlertDialog>
@@ -196,14 +124,14 @@ export const AdminUsersTab = ({ onRefresh }: AdminUsersTabProps) => {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete User</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to delete {user.full_name}? This action cannot be undone
+                        Are you sure you want to delete {user.fullName || user.email}? This action cannot be undone
                         and will remove all associated data.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => handleDeleteUser(user.user_id, role)}
+                        onClick={() => deleteUserMutation.mutate(user.id)}
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       >
                         Delete
@@ -218,6 +146,8 @@ export const AdminUsersTab = ({ onRefresh }: AdminUsersTabProps) => {
       </TableBody>
     </Table>
   );
+
+  const loading = recruitersLoading || candidatesLoading;
 
   return (
     <Card>
@@ -237,7 +167,7 @@ export const AdminUsersTab = ({ onRefresh }: AdminUsersTabProps) => {
                 className="pl-9 w-64"
               />
             </div>
-            <Button variant="outline" size="icon" onClick={fetchUsers}>
+            <Button variant="outline" size="icon" onClick={handleRefresh}>
               <RefreshCw className="w-4 h-4" />
             </Button>
           </div>

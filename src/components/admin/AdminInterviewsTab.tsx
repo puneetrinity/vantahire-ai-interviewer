@@ -1,16 +1,17 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { admin as adminApi, interviews as interviewsApi, type Interview } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -30,122 +31,64 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Trash2, RefreshCw, Eye, Play, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Search, Trash2, RefreshCw, Play, CheckCircle, Clock, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-
-interface Interview {
-  id: string;
-  job_role: string;
-  candidate_name: string | null;
-  candidate_email: string;
-  status: string;
-  score: number | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  recruiter_id: string;
-  recruiter_name?: string;
-  recruiter_email?: string;
-}
 
 interface AdminInterviewsTabProps {
   onRefresh: () => void;
 }
 
 export const AdminInterviewsTab = ({ onRefresh }: AdminInterviewsTabProps) => {
-  const [interviews, setInterviews] = useState<Interview[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchInterviews();
-  }, []);
+  // Fetch all interviews
+  const { data: interviewsData, isLoading, refetch: refetchInterviews } = useQuery({
+    queryKey: ["admin-interviews"],
+    queryFn: () => adminApi.listInterviews({ limit: 100 }),
+  });
 
-  const fetchInterviews = async () => {
-    setLoading(true);
-    try {
-      const { data: interviewsData, error } = await supabase
-        .from('interviews')
-        .select('*')
-        .order('created_at', { ascending: false });
+  const interviews = interviewsData?.data || [];
 
-      if (error) throw error;
-
-      // Fetch recruiter profiles
-      const recruiterIds = [...new Set(interviewsData?.map(i => i.recruiter_id) || [])];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', recruiterIds);
-
-      const interviewsWithRecruiters = interviewsData?.map(interview => {
-        const profile = profiles?.find(p => p.id === interview.recruiter_id);
-        return {
-          ...interview,
-          recruiter_email: profile?.email || 'N/A',
-          recruiter_name: profile?.full_name || 'N/A'
-        };
-      }) || [];
-
-      setInterviews(interviewsWithRecruiters);
-    } catch (error) {
-      console.error('Error fetching interviews:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to fetch interviews"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteInterview = async (interviewId: string) => {
-    try {
-      const { error } = await supabase
-        .from('interviews')
-        .delete()
-        .eq('id', interviewId);
-
-      if (error) throw error;
-
-      setInterviews(prev => prev.filter(i => i.id !== interviewId));
-
+  // Delete interview mutation
+  const deleteInterviewMutation = useMutation({
+    mutationFn: (interviewId: string) => interviewsApi.delete(interviewId),
+    onSuccess: () => {
       toast({
         title: "Interview deleted",
         description: "The interview has been removed"
       });
+      refetchInterviews();
       onRefresh();
-    } catch (error) {
-      console.error('Error deleting interview:', error);
+    },
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete interview"
+        description: error.message || "Failed to delete interview"
       });
-    }
-  };
+    },
+  });
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
+    switch (status?.toUpperCase()) {
+      case 'COMPLETED':
         return (
           <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1">
             <CheckCircle className="w-3 h-3" />
             Completed
           </Badge>
         );
-      case 'in_progress':
+      case 'IN_PROGRESS':
         return (
           <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 gap-1">
             <Play className="w-3 h-3" />
             In Progress
           </Badge>
         );
-      case 'expired':
+      case 'EXPIRED':
         return (
           <Badge className="bg-red-500/10 text-red-500 border-red-500/20 gap-1">
             <XCircle className="w-3 h-3" />
@@ -163,23 +106,24 @@ export const AdminInterviewsTab = ({ onRefresh }: AdminInterviewsTabProps) => {
   };
 
   const filteredInterviews = interviews.filter(interview => {
-    const matchesSearch = !searchTerm || 
-      interview.candidate_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interview.candidate_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interview.job_role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interview.recruiter_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === "all" || interview.status === statusFilter;
-    
+    const matchesSearch = !searchTerm ||
+      interview.candidateName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      interview.candidateEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      interview.jobRole?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      interview.recruiter?.fullName?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" ||
+      interview.status?.toUpperCase() === statusFilter.toUpperCase();
+
     return matchesSearch && matchesStatus;
   });
 
   const statusCounts = {
     all: interviews.length,
-    pending: interviews.filter(i => i.status === 'pending').length,
-    in_progress: interviews.filter(i => i.status === 'in_progress').length,
-    completed: interviews.filter(i => i.status === 'completed').length,
-    expired: interviews.filter(i => i.status === 'expired').length,
+    PENDING: interviews.filter(i => i.status === 'PENDING').length,
+    IN_PROGRESS: interviews.filter(i => i.status === 'IN_PROGRESS').length,
+    COMPLETED: interviews.filter(i => i.status === 'COMPLETED').length,
+    EXPIRED: interviews.filter(i => i.status === 'EXPIRED').length,
   };
 
   return (
@@ -206,20 +150,20 @@ export const AdminInterviewsTab = ({ onRefresh }: AdminInterviewsTabProps) => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All ({statusCounts.all})</SelectItem>
-                <SelectItem value="pending">Pending ({statusCounts.pending})</SelectItem>
-                <SelectItem value="in_progress">In Progress ({statusCounts.in_progress})</SelectItem>
-                <SelectItem value="completed">Completed ({statusCounts.completed})</SelectItem>
-                <SelectItem value="expired">Expired ({statusCounts.expired})</SelectItem>
+                <SelectItem value="PENDING">Pending ({statusCounts.PENDING})</SelectItem>
+                <SelectItem value="IN_PROGRESS">In Progress ({statusCounts.IN_PROGRESS})</SelectItem>
+                <SelectItem value="COMPLETED">Completed ({statusCounts.COMPLETED})</SelectItem>
+                <SelectItem value="EXPIRED">Expired ({statusCounts.EXPIRED})</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={fetchInterviews}>
+            <Button variant="outline" size="icon" onClick={() => refetchInterviews()}>
               <RefreshCw className="w-4 h-4" />
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : (
           <Table>
@@ -246,28 +190,28 @@ export const AdminInterviewsTab = ({ onRefresh }: AdminInterviewsTabProps) => {
                   <TableRow key={interview.id}>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{interview.candidate_name || 'N/A'}</div>
-                        <div className="text-sm text-muted-foreground">{interview.candidate_email}</div>
+                        <div className="font-medium">{interview.candidateName || 'N/A'}</div>
+                        <div className="text-sm text-muted-foreground">{interview.candidateEmail}</div>
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">{interview.job_role}</TableCell>
+                    <TableCell className="font-medium">{interview.jobRole}</TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{interview.recruiter_name}</div>
-                        <div className="text-sm text-muted-foreground">{interview.recruiter_email}</div>
+                        <div className="font-medium">{interview.recruiter?.fullName || 'N/A'}</div>
+                        <div className="text-sm text-muted-foreground">{interview.recruiter?.email || 'N/A'}</div>
                       </div>
                     </TableCell>
                     <TableCell>{getStatusBadge(interview.status)}</TableCell>
                     <TableCell>
                       {interview.score !== null ? (
                         <Badge variant="outline" className="font-mono">
-                          {interview.score}%
+                          {Math.round(interview.score * 100)}%
                         </Badge>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell>{format(new Date(interview.created_at), 'MMM d, yyyy')}</TableCell>
+                    <TableCell>{format(new Date(interview.createdAt), 'MMM d, yyyy')}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <AlertDialog>
@@ -280,14 +224,14 @@ export const AdminInterviewsTab = ({ onRefresh }: AdminInterviewsTabProps) => {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete Interview</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to delete this interview for {interview.candidate_name || interview.candidate_email}? 
+                                Are you sure you want to delete this interview for {interview.candidateName || interview.candidateEmail}?
                                 This will also remove all interview messages and data.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
                               <AlertDialogAction
-                                onClick={() => handleDeleteInterview(interview.id)}
+                                onClick={() => deleteInterviewMutation.mutate(interview.id)}
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                               >
                                 Delete

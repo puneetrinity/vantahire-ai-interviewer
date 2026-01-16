@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { interviews as interviewsApi } from "@/lib/api";
 import { Camera, ChevronLeft, ChevronRight, X, Loader2, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 
 interface Screenshot {
+  id: string;
   name: string;
   url: string;
   timestamp: string;
@@ -26,53 +27,16 @@ export default function InterviewScreenshotsGallery({ interviewId }: InterviewSc
     const fetchScreenshots = async () => {
       setLoading(true);
       try {
-        // List all files in the interview folder
-        const { data: files, error } = await supabase.storage
-          .from("interview-documents")
-          .list(interviewId, {
-            limit: 100,
-            sortBy: { column: "name", order: "asc" },
-          });
+        const data = await interviewsApi.listScreenshots(interviewId);
 
-        if (error) {
-          console.error("Error fetching screenshots:", error);
-          setScreenshots([]);
-          return;
-        }
+        const screenshotsWithTimestamp: Screenshot[] = data.map((file) => ({
+          id: file.id,
+          name: file.name,
+          url: file.url,
+          timestamp: new Date(file.createdAt).toLocaleString(),
+        }));
 
-        // Filter for screenshot files only
-        const screenshotFiles = (files || []).filter(
-          (file) => file.name.startsWith("screenshot-") && file.name.endsWith(".jpg")
-        );
-
-        if (screenshotFiles.length === 0) {
-          setScreenshots([]);
-          return;
-        }
-
-        // Get signed URLs for each screenshot
-        const screenshotsWithUrls: Screenshot[] = await Promise.all(
-          screenshotFiles.map(async (file) => {
-            const filePath = `${interviewId}/${file.name}`;
-            const { data: signedUrlData } = await supabase.storage
-              .from("interview-documents")
-              .createSignedUrl(filePath, 60 * 60); // 1 hour expiration
-
-            // Extract timestamp from filename (screenshot-1-1234567890.jpg)
-            const timestampMatch = file.name.match(/screenshot-\d+-(\d+)\.jpg/);
-            const timestamp = timestampMatch 
-              ? new Date(parseInt(timestampMatch[1])).toLocaleString()
-              : "Unknown time";
-
-            return {
-              name: file.name,
-              url: signedUrlData?.signedUrl || "",
-              timestamp,
-            };
-          })
-        );
-
-        setScreenshots(screenshotsWithUrls.filter((s) => s.url));
+        setScreenshots(screenshotsWithTimestamp);
       } catch (err) {
         console.error("Error loading screenshots:", err);
         setScreenshots([]);
@@ -145,7 +109,7 @@ export default function InterviewScreenshotsGallery({ interviewId }: InterviewSc
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
           {screenshots.map((screenshot, index) => (
             <button
-              key={screenshot.name}
+              key={screenshot.id}
               onClick={() => openLightbox(index)}
               className="relative aspect-video rounded-lg overflow-hidden border border-border hover:border-primary/50 transition-colors group"
             >

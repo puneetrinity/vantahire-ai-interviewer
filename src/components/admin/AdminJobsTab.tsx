@@ -1,16 +1,17 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { admin as adminApi, jobs as jobsApi, type Job } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -37,218 +38,103 @@ import { Search, Trash2, Check, X, Clock, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
-interface Job {
-  id: string;
-  title: string;
-  department: string | null;
-  location: string | null;
-  status: string;
-  approval_status: string;
-  rejection_reason: string | null;
-  created_at: string;
-  recruiter_id: string;
-  recruiter_email?: string;
-  recruiter_name?: string;
-}
-
 interface AdminJobsTabProps {
   onRefresh: () => void;
 }
 
 export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
-  const [sendingEmail, setSendingEmail] = useState(false);
   const { toast } = useToast();
 
-  const sendJobStatusEmail = async (job: Job, status: "approved" | "rejected", reason?: string) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+  // Fetch all jobs
+  const { data: jobsData, isLoading, refetch: refetchJobs } = useQuery({
+    queryKey: ["admin-jobs"],
+    queryFn: () => adminApi.listJobs({ limit: 100 }),
+  });
 
-      await supabase.functions.invoke("send-job-status-email", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        },
-        body: {
-          jobId: job.id,
-          jobTitle: job.title,
-          recruiterId: job.recruiter_id,
-          status,
-          rejectionReason: reason
-        }
-      });
-      console.log(`Job status email sent for ${job.title}`);
-    } catch (error) {
-      console.error("Failed to send job status email:", error);
-      // Don't throw - email is secondary to the status update
-    }
-  };
+  const jobs = jobsData?.data || [];
 
-  useEffect(() => {
-    fetchJobs();
-  }, []);
-
-  const fetchJobs = async () => {
-    setLoading(true);
-    try {
-      const { data: jobsData, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Fetch recruiter profiles
-      const recruiterIds = [...new Set(jobsData?.map(j => j.recruiter_id) || [])];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .in('id', recruiterIds);
-
-      const jobsWithRecruiters = jobsData?.map(job => {
-        const profile = profiles?.find(p => p.id === job.recruiter_id);
-        const jobAny = job as any;
-        return {
-          ...job,
-          approval_status: jobAny.approval_status || 'pending',
-          rejection_reason: jobAny.rejection_reason || null,
-          recruiter_email: profile?.email || 'N/A',
-          recruiter_name: profile?.full_name || 'N/A'
-        };
-      }) || [];
-
-      setJobs(jobsWithRecruiters);
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to fetch jobs"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApproveJob = async (job: Job) => {
-    setSendingEmail(true);
-    try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ 
-          approval_status: 'approved',
-          approved_at: new Date().toISOString()
-        })
-        .eq('id', job.id);
-
-      if (error) throw error;
-
-      setJobs(prev => prev.map(j => 
-        j.id === job.id ? { ...j, approval_status: 'approved' } : j
-      ));
-
-      // Send email notification
-      await sendJobStatusEmail(job, 'approved');
-
+  // Approve job mutation
+  const approveJobMutation = useMutation({
+    mutationFn: (jobId: string) => adminApi.approveJob(jobId),
+    onSuccess: () => {
       toast({
         title: "Job approved",
-        description: "The job posting has been approved and the recruiter has been notified"
+        description: "The job posting has been approved"
       });
+      refetchJobs();
       onRefresh();
-    } catch (error) {
-      console.error('Error approving job:', error);
+    },
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to approve job"
+        description: error.message || "Failed to approve job"
       });
-    } finally {
-      setSendingEmail(false);
-    }
-  };
+    },
+  });
 
-  const handleRejectJob = async () => {
-    if (!selectedJob || !rejectionReason.trim()) return;
-    setSendingEmail(true);
-
-    try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ 
-          approval_status: 'rejected',
-          rejection_reason: rejectionReason
-        })
-        .eq('id', selectedJob.id);
-
-      if (error) throw error;
-
-      setJobs(prev => prev.map(j => 
-        j.id === selectedJob.id ? { ...j, approval_status: 'rejected', rejection_reason: rejectionReason } : j
-      ));
-
-      // Send email notification
-      await sendJobStatusEmail(selectedJob, 'rejected', rejectionReason);
-
+  // Reject job mutation
+  const rejectJobMutation = useMutation({
+    mutationFn: ({ jobId, reason }: { jobId: string; reason: string }) =>
+      adminApi.rejectJob(jobId, reason),
+    onSuccess: () => {
       toast({
         title: "Job rejected",
-        description: "The job posting has been rejected and the recruiter has been notified"
+        description: "The job posting has been rejected"
       });
-      
       setRejectDialogOpen(false);
       setSelectedJob(null);
       setRejectionReason("");
+      refetchJobs();
       onRefresh();
-    } catch (error) {
-      console.error('Error rejecting job:', error);
+    },
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to reject job"
+        description: error.message || "Failed to reject job"
       });
-    } finally {
-      setSendingEmail(false);
-    }
-  };
+    },
+  });
 
-  const handleDeleteJob = async (jobId: string) => {
-    try {
-      const { error } = await supabase
-        .from('jobs')
-        .delete()
-        .eq('id', jobId);
-
-      if (error) throw error;
-
-      setJobs(prev => prev.filter(j => j.id !== jobId));
-
+  // Delete job mutation
+  const deleteJobMutation = useMutation({
+    mutationFn: (jobId: string) => jobsApi.delete(jobId),
+    onSuccess: () => {
       toast({
         title: "Job deleted",
         description: "The job posting has been removed"
       });
+      refetchJobs();
       onRefresh();
-    } catch (error) {
-      console.error('Error deleting job:', error);
+    },
+    onError: (error: any) => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete job"
+        description: error.message || "Failed to delete job"
       });
-    }
-  };
+    },
+  });
 
   const filterJobs = (status: string) => {
-    let filtered = jobs.filter(j => j.approval_status === status);
+    let filtered = jobs.filter(j => {
+      // Map API status to local filter
+      const approvalStatus = j.status === 'ACTIVE' ? 'approved' :
+                             j.status === 'CLOSED' ? 'rejected' : 'pending';
+      return approvalStatus === status;
+    });
+
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(j => 
-        j.title.toLowerCase().includes(term) || 
-        j.recruiter_name?.toLowerCase().includes(term) ||
-        j.recruiter_email?.toLowerCase().includes(term)
+      filtered = filtered.filter(j =>
+        j.title.toLowerCase().includes(term) ||
+        j.recruiter?.fullName?.toLowerCase().includes(term) ||
+        j.recruiter?.email?.toLowerCase().includes(term)
       );
     }
     return filtered;
@@ -256,9 +142,9 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'approved':
+      case 'ACTIVE':
         return <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Approved</Badge>;
-      case 'rejected':
+      case 'CLOSED':
         return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Rejected</Badge>;
       default:
         return <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">Pending</Badge>;
@@ -267,7 +153,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
 
   const renderJobsTable = (status: string) => {
     const filteredJobs = filterJobs(status);
-    
+
     return (
       <Table>
         <TableHeader>
@@ -293,29 +179,29 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
                 <TableCell className="font-medium">{job.title}</TableCell>
                 <TableCell>
                   <div>
-                    <div className="font-medium">{job.recruiter_name}</div>
-                    <div className="text-sm text-muted-foreground">{job.recruiter_email}</div>
+                    <div className="font-medium">{job.recruiter?.fullName || 'N/A'}</div>
+                    <div className="text-sm text-muted-foreground">{job.recruiter?.email || 'N/A'}</div>
                   </div>
                 </TableCell>
                 <TableCell>{job.department || 'N/A'}</TableCell>
-                <TableCell>{format(new Date(job.created_at), 'MMM d, yyyy')}</TableCell>
-                <TableCell>{getStatusBadge(job.approval_status)}</TableCell>
+                <TableCell>{format(new Date(job.createdAt), 'MMM d, yyyy')}</TableCell>
+                <TableCell>{getStatusBadge(job.status)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2">
                     {status === 'pending' && (
                       <>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="text-green-500 hover:text-green-600"
-                          onClick={() => handleApproveJob(job)}
-                          disabled={sendingEmail}
+                          onClick={() => approveJobMutation.mutate(job.id)}
+                          disabled={approveJobMutation.isPending}
                         >
                           <Check className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="text-red-500 hover:text-red-600"
                           onClick={() => {
                             setSelectedJob(job);
@@ -342,7 +228,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => handleDeleteJob(job.id)}
+                            onClick={() => deleteJobMutation.mutate(job.id)}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                           >
                             Delete
@@ -379,7 +265,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
                   className="pl-9 w-64"
                 />
               </div>
-              <Button variant="outline" size="icon" onClick={fetchJobs}>
+              <Button variant="outline" size="icon" onClick={() => refetchJobs()}>
                 <RefreshCw className="w-4 h-4" />
               </Button>
             </div>
@@ -403,7 +289,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
             </TabsList>
 
             <TabsContent value="pending" className="mt-4">
-              {loading ? (
+              {isLoading ? (
                 <div className="text-center py-8 text-muted-foreground">Loading...</div>
               ) : (
                 renderJobsTable('pending')
@@ -411,7 +297,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
             </TabsContent>
 
             <TabsContent value="approved" className="mt-4">
-              {loading ? (
+              {isLoading ? (
                 <div className="text-center py-8 text-muted-foreground">Loading...</div>
               ) : (
                 renderJobsTable('approved')
@@ -419,7 +305,7 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
             </TabsContent>
 
             <TabsContent value="rejected" className="mt-4">
-              {loading ? (
+              {isLoading ? (
                 <div className="text-center py-8 text-muted-foreground">Loading...</div>
               ) : (
                 renderJobsTable('rejected')
@@ -448,10 +334,17 @@ export const AdminJobsTab = ({ onRefresh }: AdminJobsTabProps) => {
             <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleRejectJob}
-              disabled={!rejectionReason.trim()}
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedJob && rejectionReason.trim()) {
+                  rejectJobMutation.mutate({
+                    jobId: selectedJob.id,
+                    reason: rejectionReason
+                  });
+                }
+              }}
+              disabled={!rejectionReason.trim() || rejectJobMutation.isPending}
             >
               Reject Job
             </Button>

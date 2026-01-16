@@ -1,6 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  jobs as jobsApi,
+  interviews as interviewsApi,
+  type Job,
+  type Interview,
+} from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import CreateJobDialog from "./CreateJobDialog";
@@ -33,42 +39,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { User } from "@supabase/supabase-js";
 
-interface Job {
+interface LocalInterview {
   id: string;
-  title: string;
-  description: string | null;
-  department: string | null;
-  salary_range: string | null;
-  location: string | null;
-  job_type: string | null;
-  status: string;
-  created_at: string;
-}
-
-interface Interview {
-  id: string;
-  candidate_email: string;
-  candidate_name: string | null;
-  job_role: string;
+  candidateEmail: string;
+  candidateName: string | null;
+  jobRole: string;
   status: string;
   score: number | null;
-  created_at: string;
-  job_id: string | null;
+  createdAt: string;
+  jobId: string | null;
 }
 
 interface ResendingState {
   [key: string]: { email: boolean; whatsapp: boolean };
 }
 
-interface JobsTabProps {
-  user: User | null;
-}
-
-const JobsTab = ({ user }: JobsTabProps) => {
+const JobsTab = () => {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [interviews, setInterviews] = useState<LocalInterview[]>([]);
   const [loading, setLoading] = useState(true);
   const [createJobOpen, setCreateJobOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -78,23 +68,11 @@ const JobsTab = ({ user }: JobsTabProps) => {
   const [resending, setResending] = useState<ResendingState>({});
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (user) {
-      fetchJobs();
-      fetchInterviews();
-    }
-  }, [user]);
-
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("jobs")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setJobs(data || []);
-    } catch (error: any) {
+      const response = await jobsApi.list({ limit: 100 });
+      setJobs(response.data);
+    } catch (error: unknown) {
       console.error("Error fetching jobs:", error);
       toast({
         variant: "destructive",
@@ -104,45 +82,32 @@ const JobsTab = ({ user }: JobsTabProps) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchInterviews = async () => {
+  const fetchInterviews = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("interviews")
-        .select("id, candidate_email, candidate_name, job_role, status, score, created_at, job_id")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setInterviews(data || []);
-    } catch (error: any) {
+      const response = await interviewsApi.list({ limit: 500 });
+      setInterviews(response.data.map(i => ({
+        id: i.id,
+        candidateEmail: i.candidateEmail,
+        candidateName: i.candidateName,
+        jobRole: i.jobRole,
+        status: i.status.toLowerCase(),
+        score: i.score,
+        createdAt: i.createdAt,
+        jobId: i.jobId,
+      })));
+    } catch (error: unknown) {
       console.error("Error fetching interviews:", error);
     }
-  };
+  }, []);
 
-  const getFreshAccessToken = async (): Promise<string | null> => {
-    try {
-      let { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error || !session) {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError || !refreshData.session) {
-          toast({
-            variant: "destructive",
-            title: "Session Expired",
-            description: "Please log in again to continue."
-          });
-          return null;
-        }
-        session = refreshData.session;
-      }
-      
-      return session.access_token;
-    } catch (e) {
-      console.error("Session error:", e);
-      return null;
+  useEffect(() => {
+    if (user) {
+      fetchJobs();
+      fetchInterviews();
     }
-  };
+  }, [user, fetchJobs, fetchInterviews]);
 
   const handleCreateJob = async (jobData: {
     title: string;
@@ -154,30 +119,16 @@ const JobsTab = ({ user }: JobsTabProps) => {
   }) => {
     if (!user) return;
 
-    const { data, error } = await supabase
-      .from("jobs")
-      .insert({
-        recruiter_id: user.id,
-        title: jobData.title,
-        description: jobData.description || null,
-        department: jobData.department || null,
-        salary_range: jobData.salary_range || null,
-        location: jobData.location || null,
-        job_type: jobData.job_type
-      })
-      .select()
-      .single();
+    const newJob = await jobsApi.create({
+      title: jobData.title,
+      description: jobData.description || undefined,
+      department: jobData.department || undefined,
+      salaryRange: jobData.salary_range || undefined,
+      location: jobData.location || undefined,
+      jobType: jobData.job_type
+    });
 
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to create job"
-      });
-      throw error;
-    }
-
-    setJobs([data, ...jobs]);
+    setJobs([newJob, ...jobs]);
     toast({
       title: "Job Created",
       description: `${jobData.title} has been created successfully.`
@@ -188,167 +139,111 @@ const JobsTab = ({ user }: JobsTabProps) => {
     if (!user || !selectedJob) return;
 
     // Create interview linked to job
-    const { data, error } = await supabase
-      .from("interviews")
-      .insert({
-        recruiter_id: user.id,
-        candidate_email: candidate.email,
-        candidate_name: candidate.name || null,
-        job_role: selectedJob.title,
-        job_id: selectedJob.id,
-        status: "pending",
-        time_limit_minutes: 30
-      })
-      .select()
-      .single();
+    const interview = await interviewsApi.create({
+      candidateEmail: candidate.email,
+      candidateName: candidate.name || undefined,
+      candidatePhone: candidate.phone || undefined,
+      jobRole: selectedJob.title,
+      jobId: selectedJob.id,
+      timeLimitMinutes: 30
+    });
 
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to add candidate"
-      });
-      throw error;
-    }
+    // Send email invite
+    try {
+      await interviewsApi.sendEmailInvite(interview.id);
 
-    // Send invitation email
-    const accessToken = await getFreshAccessToken();
-    if (accessToken) {
-      const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
-      
-      try {
-        // Send email invite
-        await supabase.functions.invoke("send-candidate-invite", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: {
-            candidateEmail: candidate.email,
-            candidateName: candidate.name || null,
-            jobRole: selectedJob.title,
-            interviewId: data.id,
-            interviewUrl,
-            recruiterId: user.id
-          }
-        });
-
-        // Send WhatsApp invite if phone number is provided
-        if (candidate.phone && candidate.phone.trim()) {
-          try {
-            await supabase.functions.invoke("send-whatsapp-invite", {
-              headers: { Authorization: `Bearer ${accessToken}` },
-              body: {
-                candidatePhone: candidate.phone,
-                candidateName: candidate.name || null,
-                jobRole: selectedJob.title,
-                interviewId: data.id,
-                interviewUrl,
-                recruiterId: user.id
-              }
-            });
-            toast({
-              title: "Candidate Added",
-              description: `Email and WhatsApp invitation sent to ${candidate.email}`
-            });
-          } catch (whatsappErr) {
-            console.error("WhatsApp error:", whatsappErr);
-            toast({
-              title: "Candidate Added",
-              description: `Email sent to ${candidate.email}. WhatsApp invite failed.`
-            });
-          }
-        } else {
+      // Send WhatsApp invite if phone number is provided
+      if (candidate.phone && candidate.phone.trim()) {
+        try {
+          await interviewsApi.sendWhatsAppInvite(interview.id, candidate.phone);
           toast({
             title: "Candidate Added",
-            description: `Invitation sent to ${candidate.email}`
+            description: `Email and WhatsApp invitation sent to ${candidate.email}`
+          });
+        } catch (whatsappErr) {
+          console.error("WhatsApp error:", whatsappErr);
+          toast({
+            title: "Candidate Added",
+            description: `Email sent to ${candidate.email}. WhatsApp invite failed.`
           });
         }
-      } catch (emailErr) {
-        console.error("Email error:", emailErr);
+      } else {
         toast({
           title: "Candidate Added",
-          description: "Interview created but email failed. Share the link manually."
+          description: `Invitation sent to ${candidate.email}`
         });
       }
+    } catch (emailErr) {
+      console.error("Email error:", emailErr);
+      toast({
+        title: "Candidate Added",
+        description: "Interview created but email failed. Share the link manually."
+      });
     }
 
-    setInterviews([data as Interview, ...interviews]);
+    setInterviews([{
+      id: interview.id,
+      candidateEmail: interview.candidateEmail,
+      candidateName: interview.candidateName,
+      jobRole: interview.jobRole,
+      status: interview.status.toLowerCase(),
+      score: interview.score,
+      createdAt: interview.createdAt,
+      jobId: interview.jobId,
+    }, ...interviews]);
   };
 
   const handleBulkInvite = async (candidates: { email: string; name: string; phone?: string }[], sendWhatsApp: boolean) => {
     if (!user || !selectedJob) return [];
 
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      return candidates.map(c => ({ email: c.email, success: false, error: "Session expired" }));
-    }
-
     const results: { email: string; success: boolean; error?: string; whatsappSent?: boolean }[] = [];
 
     for (const candidate of candidates) {
       try {
-        const { data, error } = await supabase
-          .from("interviews")
-          .insert({
-            recruiter_id: user.id,
-            candidate_email: candidate.email,
-            candidate_name: candidate.name || null,
-            job_role: selectedJob.title,
-            job_id: selectedJob.id,
-            status: "pending",
-            time_limit_minutes: 30
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
-        
-        // Send email invite
-        await supabase.functions.invoke("send-candidate-invite", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: {
-            candidateEmail: candidate.email,
-            candidateName: candidate.name || null,
-            jobRole: selectedJob.title,
-            interviewId: data.id,
-            interviewUrl,
-            recruiterId: user.id
-          }
+        const interview = await interviewsApi.create({
+          candidateEmail: candidate.email,
+          candidateName: candidate.name || undefined,
+          candidatePhone: candidate.phone || undefined,
+          jobRole: selectedJob.title,
+          jobId: selectedJob.id,
+          timeLimitMinutes: 30
         });
 
+        // Send email invite
+        await interviewsApi.sendEmailInvite(interview.id);
+
         let whatsappSent = false;
-        
+
         // Send WhatsApp invite if enabled and phone number is provided
         if (sendWhatsApp && candidate.phone && candidate.phone.trim()) {
           try {
-            await supabase.functions.invoke("send-whatsapp-invite", {
-              headers: { Authorization: `Bearer ${accessToken}` },
-              body: {
-                candidatePhone: candidate.phone,
-                candidateName: candidate.name || null,
-                jobRole: selectedJob.title,
-                interviewId: data.id,
-                interviewUrl,
-                recruiterId: user.id
-              }
-            });
+            await interviewsApi.sendWhatsAppInvite(interview.id, candidate.phone);
             whatsappSent = true;
           } catch (whatsappErr) {
             console.error(`WhatsApp error for ${candidate.email}:`, whatsappErr);
           }
         }
 
-        setInterviews(prev => [data as Interview, ...prev]);
+        setInterviews(prev => [{
+          id: interview.id,
+          candidateEmail: interview.candidateEmail,
+          candidateName: interview.candidateName,
+          jobRole: interview.jobRole,
+          status: interview.status.toLowerCase(),
+          score: interview.score,
+          createdAt: interview.createdAt,
+          jobId: interview.jobId,
+        }, ...prev]);
         results.push({ email: candidate.email, success: true, whatsappSent });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`Error for ${candidate.email}:`, error);
-        results.push({ email: candidate.email, success: false, error: error.message || "Failed" });
+        results.push({ email: candidate.email, success: false, error: error instanceof Error ? error.message : "Failed" });
       }
     }
 
     const successCount = results.filter(r => r.success).length;
     const whatsappCount = results.filter(r => r.whatsappSent).length;
-    
+
     if (successCount > 0) {
       const whatsappMsg = whatsappCount > 0 ? ` (${whatsappCount} via WhatsApp)` : '';
       toast({
@@ -360,7 +255,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
     return results;
   };
 
-  const resendEmailInvite = async (interview: Interview) => {
+  const resendEmailInvite = async (interview: LocalInterview) => {
     if (!user) return;
 
     setResending(prev => ({
@@ -369,35 +264,18 @@ const JobsTab = ({ user }: JobsTabProps) => {
     }));
 
     try {
-      const accessToken = await getFreshAccessToken();
-      if (!accessToken) {
-        throw new Error("Session expired");
-      }
-
-      const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
-
-      await supabase.functions.invoke("send-candidate-invite", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: {
-          candidateEmail: interview.candidate_email,
-          candidateName: interview.candidate_name || null,
-          jobRole: interview.job_role,
-          interviewId: interview.id,
-          interviewUrl,
-          recruiterId: user.id
-        }
-      });
+      await interviewsApi.sendEmailInvite(interview.id);
 
       toast({
         title: "Email Sent",
-        description: `Interview invitation resent to ${interview.candidate_email}`
+        description: `Interview invitation resent to ${interview.candidateEmail}`
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Resend email error:", error);
       toast({
         variant: "destructive",
         title: "Failed to Send",
-        description: error.message || "Could not resend email invitation"
+        description: error instanceof Error ? error.message : "Could not resend email invitation"
       });
     } finally {
       setResending(prev => ({
@@ -407,7 +285,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
     }
   };
 
-  const resendWhatsAppInvite = async (interview: Interview, phone: string) => {
+  const resendWhatsAppInvite = async (interview: LocalInterview, phone: string) => {
     if (!user) return;
 
     setResending(prev => ({
@@ -416,35 +294,18 @@ const JobsTab = ({ user }: JobsTabProps) => {
     }));
 
     try {
-      const accessToken = await getFreshAccessToken();
-      if (!accessToken) {
-        throw new Error("Session expired");
-      }
-
-      const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
-
-      await supabase.functions.invoke("send-whatsapp-invite", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: {
-          candidatePhone: phone,
-          candidateName: interview.candidate_name || null,
-          jobRole: interview.job_role,
-          interviewId: interview.id,
-          interviewUrl,
-          recruiterId: user.id
-        }
-      });
+      await interviewsApi.sendWhatsAppInvite(interview.id, phone);
 
       toast({
         title: "WhatsApp Sent",
         description: `Interview invitation resent via WhatsApp`
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Resend WhatsApp error:", error);
       toast({
         variant: "destructive",
         title: "Failed to Send",
-        description: error.message || "Could not resend WhatsApp invitation"
+        description: error instanceof Error ? error.message : "Could not resend WhatsApp invitation"
       });
     } finally {
       setResending(prev => ({
@@ -456,16 +317,11 @@ const JobsTab = ({ user }: JobsTabProps) => {
 
   const deleteJob = async (jobId: string) => {
     try {
-      const { error } = await supabase
-        .from("jobs")
-        .delete()
-        .eq("id", jobId);
+      await jobsApi.delete(jobId);
 
-      if (error) throw error;
-      
       setJobs(jobs.filter(j => j.id !== jobId));
       toast({ title: "Job deleted" });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -485,7 +341,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
   };
 
   const getJobCandidates = (jobId: string) => {
-    return interviews.filter(i => i.job_id === jobId);
+    return interviews.filter(i => i.jobId === jobId);
   };
 
   const getStatusIcon = (status: string) => {
@@ -547,7 +403,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
               return (
                 <div key={job.id} className="p-4" data-tour={jobs.indexOf(job) === 0 ? "job-card" : undefined}>
                   <div className="flex items-start justify-between">
-                    <div 
+                    <div
                       className="flex-1 cursor-pointer"
                       onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
                     >
@@ -570,10 +426,10 @@ const JobsTab = ({ user }: JobsTabProps) => {
                                 {job.location}
                               </span>
                             )}
-                            {job.salary_range && (
+                            {job.salaryRange && (
                               <span className="flex items-center gap-1">
                                 <DollarSign className="w-3 h-3" />
-                                {job.salary_range}
+                                {job.salaryRange}
                               </span>
                             )}
                           </div>
@@ -638,7 +494,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                             <Copy className="w-4 h-4 mr-2" />
                             Copy Link
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => deleteJob(job.id)}
                           >
@@ -690,7 +546,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                             >
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-primary-foreground text-xs font-semibold">
-                                  {(candidate.candidate_name || candidate.candidate_email)
+                                  {(candidate.candidateName || candidate.candidateEmail)
                                     .split(" ")
                                     .map((n) => n[0])
                                     .join("")
@@ -699,11 +555,11 @@ const JobsTab = ({ user }: JobsTabProps) => {
                                 </div>
                                 <div>
                                   <div className="font-medium text-foreground text-sm">
-                                    {candidate.candidate_name || candidate.candidate_email}
+                                    {candidate.candidateName || candidate.candidateEmail}
                                   </div>
-                                  {candidate.candidate_name && (
+                                  {candidate.candidateName && (
                                     <div className="text-xs text-muted-foreground">
-                                      {candidate.candidate_email}
+                                      {candidate.candidateEmail}
                                     </div>
                                   )}
                                 </div>
@@ -740,7 +596,7 @@ const JobsTab = ({ user }: JobsTabProps) => {
                                 >
                                   <ExternalLink className="w-3 h-3" />
                                 </Button>
-                                
+
                                 {/* Resend Invite Dropdown */}
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
@@ -805,8 +661,8 @@ const JobsTab = ({ user }: JobsTabProps) => {
         job={selectedJob}
         onSubmit={handleAddCandidate}
         existingCandidates={selectedJob ? getJobCandidates(selectedJob.id).map(c => ({
-          email: c.candidate_email,
-          name: c.candidate_name,
+          email: c.candidateEmail,
+          name: c.candidateName,
           status: c.status
         })) : []}
       />

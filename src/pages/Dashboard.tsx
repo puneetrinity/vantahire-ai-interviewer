@@ -1,8 +1,17 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
 import { jsPDF } from "jspdf";
+import { useAuth } from "@/hooks/useAuth";
+import { useInterviewStatus } from "@/hooks/useSocket";
+import {
+  interviews as interviewsApi,
+  jobs as jobsApi,
+  files as filesApi,
+  type Interview,
+  type InterviewMessage,
+  type RecruiterProfile,
+} from "@/lib/api";
 import BulkInviteDialog from "@/components/BulkInviteDialog";
 import JobsTab from "@/components/JobsTab";
 import ApplicationsTab from "@/components/ApplicationsTab";
@@ -69,22 +78,6 @@ import {
   Target,
   Sparkles,
 } from "lucide-react";
-import type { User } from "@supabase/supabase-js";
-interface Interview {
-  id: string;
-  candidate_email: string;
-  candidate_name: string | null;
-  job_role: string;
-  status: string;
-  score: number | null;
-  created_at: string;
-  completed_at: string | null;
-  transcript_summary: string | null;
-  candidate_resume_url: string | null;
-  candidate_notes: string | null;
-  time_limit_minutes: number | null;
-  recording_url: string | null;
-}
 
 interface InterviewSummary {
   overallScore: number;
@@ -98,24 +91,31 @@ interface InterviewSummary {
   cultureFitScore: number;
 }
 
-interface RecruiterProfile {
-  company_name: string | null;
-  brand_color: string;
-  logo_url: string | null;
-  email_intro: string | null;
-  email_tips: string | null;
-  email_cta_text: string | null;
+interface FinalRecommendation {
+  overallAssessment: string;
+  hiringRecommendation: "Strongly Recommend" | "Recommend" | "Proceed with Caution" | "Do Not Recommend";
+  confidenceScore: number;
+  keyFindings: {
+    consistencies: string[];
+    discrepancies: string[];
+  };
+  communicationAnalysis: {
+    clarity: number;
+    confidence: number;
+    professionalTone: number;
+    observations: string[];
+  };
+  technicalAssessment: {
+    score: number;
+    strengths: string[];
+    gaps: string[];
+  };
+  cultureFitIndicators: string[];
+  redFlags: string[];
+  greenFlags: string[];
+  finalVerdict: string;
+  suggestedNextSteps: string[];
 }
-
-// Helper function to adjust color brightness
-const adjustColor = (color: string, amount: number): string => {
-  const hex = color.replace('#', '');
-  const num = parseInt(hex, 16);
-  const r = Math.min(255, Math.max(0, (num >> 16) + amount));
-  const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amount));
-  const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amount));
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-};
 
 // Helper function to format time in seconds to MM:SS
 const formatTime = (seconds: number): string => {
@@ -125,14 +125,21 @@ const formatTime = (seconds: number): string => {
 };
 
 const Dashboard = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const {
+    user,
+    recruiterProfile,
+    isLoading: authLoading,
+    isAuthenticated,
+    isAdmin,
+    isCandidate,
+    logout,
+  } = useAuth();
+  const [interviewsList, setInterviewsList] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
-  const [transcriptMessages, setTranscriptMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [transcriptMessages, setTranscriptMessages] = useState<InterviewMessage[]>([]);
   const [newInterview, setNewInterview] = useState({
     email: "",
     name: "",
@@ -160,197 +167,44 @@ const Dashboard = () => {
   const [transcribingVideo, setTranscribingVideo] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [showTranscriptComparison, setShowTranscriptComparison] = useState(false);
-  const [finalRecommendation, setFinalRecommendation] = useState<{
-    overallAssessment: string;
-    hiringRecommendation: "Strongly Recommend" | "Recommend" | "Proceed with Caution" | "Do Not Recommend";
-    confidenceScore: number;
-    keyFindings: {
-      consistencies: string[];
-      discrepancies: string[];
-    };
-    communicationAnalysis: {
-      clarity: number;
-      confidence: number;
-      professionalTone: number;
-      observations: string[];
-    };
-    technicalAssessment: {
-      score: number;
-      strengths: string[];
-      gaps: string[];
-    };
-    cultureFitIndicators: string[];
-    redFlags: string[];
-    greenFlags: string[];
-    finalVerdict: string;
-    suggestedNextSteps: string[];
-  } | null>(null);
+  const [finalRecommendation, setFinalRecommendation] = useState<FinalRecommendation | null>(null);
   const [generatingRecommendation, setGeneratingRecommendation] = useState(false);
-  const [profile, setProfile] = useState<RecruiterProfile>({
-    company_name: null,
-    brand_color: '#6366f1',
-    logo_url: null,
-    email_intro: null,
-    email_tips: null,
-    email_cta_text: null
-  });
   const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
   const [jobsCount, setJobsCount] = useState(0);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   // Get interview IDs for WhatsApp status tracking
-  const interviewIds = useMemo(() => interviews.map(i => i.id), [interviews]);
+  const interviewIds = useMemo(() => interviewsList.map(i => i.id), [interviewsList]);
   const { whatsappMessages } = useWhatsAppStatus(interviewIds);
 
-  useEffect(() => {
-    const checkUserRole = async (userId: string) => {
-      // Check if user is admin
-      const { data: adminData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .eq('role', 'admin')
-        .maybeSingle();
-      setIsAdmin(adminData !== null);
-      
-      // Check if user is a candidate - redirect them to candidate dashboard
-      const { data: roleData } = await supabase.rpc('get_user_role', { _user_id: userId });
-      if (roleData === 'candidate') {
-        navigate("/candidate/dashboard");
-        return false; // Indicate user should not stay on this page
-      }
-      return true; // User can stay
-    };
+  // Subscribe to interview status updates via Socket.io
+  useInterviewStatus(
+    interviewIds.length > 0 ? interviewIds[0] : undefined,
+    useCallback((data) => {
+      // Refetch interviews when status changes
+      fetchInterviews();
+    }, [])
+  );
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setUser(session?.user ?? null);
-        if (!session) {
-          navigate("/auth");
-        } else {
-          setTimeout(() => checkUserRole(session.user.id), 0);
-        }
-      }
-    );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (!session) {
-        navigate("/auth");
-      } else {
-        const canStay = await checkUserRole(session.user.id);
-        if (canStay) {
-          fetchInterviews();
-          fetchProfile(session.user.id);
-        }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  // Real-time subscription for interview updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('interviews-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'interviews'
-        },
-        (payload) => {
-          console.log('Interview updated:', payload);
-          // Refetch interviews when any change occurs
-          fetchInterviews();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // Fetch jobs count for onboarding progress
-  useEffect(() => {
-    if (!user) return;
-    
-    const fetchJobsCount = async () => {
-      const { count } = await supabase
-        .from("jobs")
-        .select("*", { count: "exact", head: true });
-      setJobsCount(count || 0);
-    };
-    
-    fetchJobsCount();
-    
-    // Subscribe to jobs changes
-    const channel = supabase
-      .channel('jobs-count')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'jobs'
-        },
-        () => fetchJobsCount()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // Helper to get fresh access token for edge function calls
-  const getFreshAccessToken = async (): Promise<string | null> => {
-    try {
-      // First try to get current session
-      let { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error || !session) {
-        // Session expired, try to refresh
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError || !refreshData.session) {
-          toast({
-            variant: "destructive",
-            title: "Session Expired",
-            description: "Please log in again to continue."
-          });
-          navigate("/auth");
-          return null;
-        }
-        session = refreshData.session;
-      }
-      
-      return session.access_token;
-    } catch (e) {
-      console.error("Session error:", e);
-      toast({
-        variant: "destructive",
-        title: "Authentication Error",
-        description: "Please log in again."
-      });
-      navigate("/auth");
-      return null;
-    }
+  // Profile with defaults from API
+  const profile: RecruiterProfile = recruiterProfile || {
+    id: '',
+    userId: '',
+    companyName: null,
+    logoFileId: null,
+    brandColor: '#6366f1',
+    emailIntro: null,
+    emailTips: null,
+    emailCtaText: null,
+    subscriptionStatus: 'FREE',
   };
 
-  const fetchInterviews = async () => {
+  // Fetch interviews
+  const fetchInterviews = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("interviews")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setInterviews((data as Interview[]) || []);
+      const response = await interviewsApi.list();
+      setInterviewsList(response.data);
     } catch (error: any) {
       console.error("Error fetching interviews:", error);
       toast({
@@ -361,50 +215,49 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchProfile = async (userId: string) => {
+  // Fetch jobs count for onboarding progress
+  const fetchJobsCount = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      if (data) {
-        setProfile({
-          company_name: data.company_name,
-          brand_color: data.brand_color || '#6366f1',
-          logo_url: data.logo_url,
-          email_intro: data.email_intro,
-          email_tips: data.email_tips,
-          email_cta_text: data.email_cta_text
-        });
-      }
-    } catch (error: any) {
-      console.error("Error fetching profile:", error);
+      const response = await jobsApi.list({ limit: 1 });
+      setJobsCount(response.pagination.total);
+    } catch (error) {
+      console.error("Error fetching jobs count:", error);
     }
-  };
+  }, []);
 
+  // Auth and redirect logic
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!isAuthenticated) {
+      navigate("/auth");
+      return;
+    }
+
+    // Redirect candidates to their dashboard
+    if (isCandidate) {
+      navigate("/candidate/dashboard");
+      return;
+    }
+
+    // Fetch data
+    fetchInterviews();
+    fetchJobsCount();
+  }, [authLoading, isAuthenticated, isCandidate, navigate, fetchInterviews, fetchJobsCount]);
 
   const fetchTranscript = async (interviewId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("interview_messages")
-        .select("*")
-        .eq("interview_id", interviewId)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      setTranscriptMessages(data || []);
+      const messages = await interviewsApi.getTranscript(interviewId);
+      setTranscriptMessages(messages);
     } catch (error) {
       console.error("Error fetching transcript:", error);
     }
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/");
   };
 
@@ -414,85 +267,31 @@ const Dashboard = () => {
     setCreating(true);
 
     try {
-      const { data, error } = await supabase
-        .from("interviews")
-        .insert({
-          recruiter_id: user.id,
-          candidate_email: newInterview.email,
-          candidate_name: newInterview.name || null,
-          job_role: "General Interview",
-          status: "pending",
-          time_limit_minutes: 30
-        })
-        .select()
-        .single();
+      const data = await interviewsApi.create({
+        candidateEmail: newInterview.email,
+        candidateName: newInterview.name || undefined,
+        jobRole: "General Interview",
+        type: "VOICE",
+        timeLimitMinutes: 30,
+        candidatePhone: newInterview.phone || undefined,
+      });
 
-      if (error) throw error;
-
-      // Get fresh access token before calling edge function
-      const accessToken = await getFreshAccessToken();
-      if (!accessToken) {
-        setCreating(false);
-        return;
-      }
-
-      // Send invitation email to candidate
-      const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
-      
+      // Send invitation email
       try {
-        const { data: emailData, error: emailError } = await supabase.functions.invoke("send-candidate-invite", {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: {
-            candidateEmail: newInterview.email,
-            candidateName: newInterview.name || null,
-            jobRole: "General Interview",
-            interviewId: data.id,
-            interviewUrl,
-            recruiterId: user.id,
-            candidatePhone: newInterview.phone
-          }
+        await interviewsApi.sendEmailInvite(data.id);
+        toast({
+          title: "Interview Created & Email Sent",
+          description: `Invitation email sent to ${newInterview.email}`
         });
-
-        if (emailError) {
-          console.error("Failed to send invitation email:", emailError);
-          // Check for auth errors
-          if (emailError.message?.includes('401') || emailError.message?.includes('JWT')) {
-            toast({
-              variant: "destructive",
-              title: "Session Expired",
-              description: "Please refresh the page and try again."
-            });
-          } else {
-            toast({
-              title: "Interview Created",
-              description: "Interview created but email notification failed. Share the link manually."
-            });
-          }
-        } else {
-          toast({
-            title: "Interview Created & Email Sent",
-            description: `Invitation email sent to ${newInterview.email}`
-          });
-        }
       } catch (emailErr: any) {
         console.error("Email sending error:", emailErr);
-        if (emailErr?.message?.includes('401') || emailErr?.message?.includes('JWT')) {
-          toast({
-            variant: "destructive",
-            title: "Session Expired",
-            description: "Please refresh the page and try again."
-          });
-        } else {
-          toast({
-            title: "Interview Created",
-            description: "Interview created but email notification failed. Share the link manually."
-          });
-        }
+        toast({
+          title: "Interview Created",
+          description: "Interview created but email notification failed. Share the link manually."
+        });
       }
 
-      setInterviews([data as Interview, ...interviews]);
+      setInterviewsList([data, ...interviewsList]);
       setCreateDialogOpen(false);
       setNewInterview({ email: "", name: "", phone: "" });
     } catch (error: any) {
@@ -518,64 +317,26 @@ const Dashboard = () => {
 
   const resendInviteEmail = async (interview: Interview) => {
     setResendingEmail(interview.id);
-    
-    // Get fresh access token before calling edge function
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      setResendingEmail(null);
-      return;
-    }
-    
-    const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
-    
+
     try {
-      const { error } = await supabase.functions.invoke("send-candidate-invite", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        body: {
-          candidateEmail: interview.candidate_email,
-          candidateName: interview.candidate_name,
-          jobRole: interview.job_role,
-          interviewId: interview.id,
-          interviewUrl,
-          recruiterId: user?.id
-        }
-      });
-
-      if (error) {
-        if (error.message?.includes('401') || error.message?.includes('JWT')) {
-          throw new Error("Session expired");
-        }
-        throw error;
-      }
-
+      await interviewsApi.sendEmailInvite(interview.id);
       toast({
         title: "Email Sent",
-        description: `Invitation resent to ${interview.candidate_email}`
+        description: `Invitation resent to ${interview.candidateEmail}`
       });
     } catch (error: any) {
       console.error("Failed to resend invite:", error);
-      if (error?.message?.includes('Session expired') || error?.message?.includes('401')) {
-        toast({
-          variant: "destructive",
-          title: "Session Expired",
-          description: "Please refresh the page and try again."
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Failed to Send",
-          description: "Could not resend invitation email. Please try again."
-        });
-      }
+      toast({
+        variant: "destructive",
+        title: "Failed to Send",
+        description: "Could not resend invitation email. Please try again."
+      });
     } finally {
       setResendingEmail(null);
     }
   };
 
   const resendWhatsAppInvite = async (interview: Interview) => {
-    // Get the phone number from whatsappMessages
     const whatsappMessage = whatsappMessages[interview.id];
     if (!whatsappMessage?.candidate_phone) {
       toast({
@@ -587,56 +348,20 @@ const Dashboard = () => {
     }
 
     setResendingWhatsApp(interview.id);
-    
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      setResendingWhatsApp(null);
-      return;
-    }
-    
-    const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
-    
+
     try {
-      const { error } = await supabase.functions.invoke("send-whatsapp-invite", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        body: {
-          candidatePhone: whatsappMessage.candidate_phone,
-          candidateName: interview.candidate_name,
-          jobRole: interview.job_role,
-          interviewId: interview.id,
-          interviewUrl,
-          companyName: profile.company_name
-        }
-      });
-
-      if (error) {
-        if (error.message?.includes('401') || error.message?.includes('JWT')) {
-          throw new Error("Session expired");
-        }
-        throw error;
-      }
-
+      await interviewsApi.sendWhatsAppInvite(interview.id, whatsappMessage.candidate_phone);
       toast({
         title: "WhatsApp Sent",
         description: `Invitation resent to ${whatsappMessage.candidate_phone}`
       });
     } catch (error: any) {
       console.error("Failed to resend WhatsApp:", error);
-      if (error?.message?.includes('Session expired') || error?.message?.includes('401')) {
-        toast({
-          variant: "destructive",
-          title: "Session Expired",
-          description: "Please refresh the page and try again."
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Failed to Send",
-          description: "Could not resend WhatsApp invitation. Please try again."
-        });
-      }
+      toast({
+        variant: "destructive",
+        title: "Failed to Send",
+        description: "Could not resend WhatsApp invitation. Please try again."
+      });
     } finally {
       setResendingWhatsApp(null);
     }
@@ -644,52 +369,21 @@ const Dashboard = () => {
 
   const regenerateSummary = async (interview: Interview) => {
     setRegeneratingSummary(interview.id);
-    
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      setRegeneratingSummary(null);
-      return;
-    }
-    
+
     try {
-      const { data, error } = await supabase.functions.invoke("generate-interview-summary", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        body: {
-          interviewId: interview.id
-        }
-      });
-
-      if (error) {
-        if (error.message?.includes('401') || error.message?.includes('JWT')) {
-          throw new Error("Session expired");
-        }
-        throw error;
-      }
-
+      await interviewsApi.regenerateSummary(interview.id);
       toast({
         title: "Summary Generated",
-        description: `AI summary has been generated for ${interview.candidate_name || interview.candidate_email}`
+        description: `AI summary has been generated for ${interview.candidateName || interview.candidateEmail}`
       });
-
-      // Refresh interviews to show the new summary
       fetchInterviews();
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);
-      if (error?.message?.includes('Session expired') || error?.message?.includes('401')) {
-        toast({
-          variant: "destructive",
-          title: "Session Expired",
-          description: "Please refresh the page and try again."
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Failed to Generate",
-          description: "Could not generate AI summary. Please try again."
-        });
-      }
+      toast({
+        variant: "destructive",
+        title: "Failed to Generate",
+        description: "Could not generate AI summary. Please try again."
+      });
     } finally {
       setRegeneratingSummary(null);
     }
@@ -698,51 +392,25 @@ const Dashboard = () => {
   const handleBulkInvite = async (candidates: { email: string; name: string; jobRole: string }[]) => {
     if (!user) return [];
 
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      return candidates.map(c => ({ email: c.email, success: false, error: "Session expired" }));
-    }
-
     const results: { email: string; success: boolean; error?: string }[] = [];
 
     for (const candidate of candidates) {
       try {
-        // Create interview
-        const { data, error } = await supabase
-          .from("interviews")
-          .insert({
-            recruiter_id: user.id,
-            candidate_email: candidate.email,
-            candidate_name: candidate.name || null,
-            job_role: candidate.jobRole,
-            status: "pending",
-            time_limit_minutes: 30
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        // Send invitation email
-        const interviewUrl = `${window.location.origin}/voice-interview/${data.id}`;
-        
-        const { error: emailError } = await supabase.functions.invoke("send-candidate-invite", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: {
-            candidateEmail: candidate.email,
-            candidateName: candidate.name || null,
-            jobRole: candidate.jobRole,
-            interviewId: data.id,
-            interviewUrl,
-            recruiterId: user.id
-          }
+        const data = await interviewsApi.create({
+          candidateEmail: candidate.email,
+          candidateName: candidate.name || undefined,
+          jobRole: candidate.jobRole,
+          type: "VOICE",
+          timeLimitMinutes: 30,
         });
 
-        if (emailError) {
+        try {
+          await interviewsApi.sendEmailInvite(data.id);
+        } catch (emailError) {
           console.warn(`Email failed for ${candidate.email}:`, emailError);
         }
 
-        setInterviews(prev => [data as Interview, ...prev]);
+        setInterviewsList(prev => [data, ...prev]);
         results.push({ email: candidate.email, success: true });
       } catch (error: any) {
         console.error(`Error for ${candidate.email}:`, error);
@@ -763,13 +431,8 @@ const Dashboard = () => {
 
   const deleteInterview = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("interviews")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-      setInterviews(interviews.filter(i => i.id !== id));
+      await interviewsApi.delete(id);
+      setInterviewsList(interviewsList.filter(i => i.id !== id));
       toast({ title: "Interview deleted" });
     } catch (error: any) {
       toast({
@@ -790,11 +453,11 @@ const Dashboard = () => {
     setShowTranscriptComparison(false);
     setFinalRecommendation(null);
     await fetchTranscript(interview.id);
-    
-    // Load stored video transcription and final recommendation from candidate_notes
-    if (interview.candidate_notes) {
+
+    // Load stored video transcription and final recommendation from candidateNotes
+    if (interview.candidateNotes) {
       try {
-        const notes = JSON.parse(interview.candidate_notes);
+        const notes = JSON.parse(interview.candidateNotes);
         if (notes.video_transcription) {
           setVideoTranscription(notes.video_transcription);
           setShowTranscriptComparison(true);
@@ -806,21 +469,16 @@ const Dashboard = () => {
           setFinalRecommendation(notes.final_recommendation);
         }
       } catch (e) {
-        console.log("Could not parse candidate_notes as JSON");
+        console.log("Could not parse candidateNotes as JSON");
       }
     }
-    
+
     // Load recording URL if available
-    if (interview.recording_url) {
+    if (interview.recordingGcsKey) {
       setLoadingRecording(true);
       try {
-        const { data, error } = await supabase.storage
-          .from('interview-documents')
-          .createSignedUrl(interview.recording_url, 60 * 60 * 24); // 24 hour expiry
-        
-        if (!error && data?.signedUrl) {
-          setRecordingUrl(data.signedUrl);
-        }
+        const url = await interviewsApi.getRecordingUrl(interview.id);
+        setRecordingUrl(url);
       } catch (err) {
         console.error("Failed to load recording:", err);
       } finally {
@@ -831,29 +489,20 @@ const Dashboard = () => {
 
   const generateFinalRecommendation = async () => {
     if (!selectedInterview) return;
-    
+
     setGeneratingRecommendation(true);
     try {
       const chatTranscriptText = transcriptMessages
         .map(msg => `${msg.role === "user" ? "Candidate" : "AI Interviewer"}: ${msg.content}`)
         .join("\n\n");
-      
-      const existingSummary = parseSummary(selectedInterview.transcript_summary);
-      
-      const { data, error } = await supabase.functions.invoke("generate-final-recommendation", {
-        body: {
-          videoTranscription: videoTranscription || "",
-          chatTranscript: chatTranscriptText,
-          candidateName: selectedInterview.candidate_name || selectedInterview.candidate_email,
-          jobRole: selectedInterview.job_role,
-          existingSummary
-        }
+
+      const response = await interviewsApi.generateFinalRecommendation(selectedInterview.id, {
+        videoTranscription: videoTranscription || "",
+        chatTranscript: chatTranscriptText,
       });
 
-      if (error) throw error;
-      
-      if (data?.recommendation) {
-        setFinalRecommendation(data.recommendation);
+      if (response?.recommendation) {
+        setFinalRecommendation(response.recommendation as FinalRecommendation);
         toast({
           title: "Recommendation Generated",
           description: "Final hiring recommendation has been generated."
@@ -875,12 +524,12 @@ const Dashboard = () => {
 
   const downloadFinalRecommendation = () => {
     if (!finalRecommendation || !selectedInterview) return;
-    
+
     const content = `FINAL INTERVIEW RECOMMENDATION
 ========================================
 
-CANDIDATE: ${selectedInterview.candidate_name || selectedInterview.candidate_email}
-POSITION: ${selectedInterview.job_role}
+CANDIDATE: ${selectedInterview.candidateName || selectedInterview.candidateEmail}
+POSITION: ${selectedInterview.jobRole}
 DATE: ${new Date().toLocaleDateString()}
 
 ----------------------------------------
@@ -904,7 +553,7 @@ Consistencies (Video vs Chat):
 ${finalRecommendation.keyFindings.consistencies.map(c => `• ${c}`).join('\n')}
 
 Discrepancies:
-${finalRecommendation.keyFindings.discrepancies.length > 0 
+${finalRecommendation.keyFindings.discrepancies.length > 0
   ? finalRecommendation.keyFindings.discrepancies.map(d => `• ${d}`).join('\n')
   : '• No significant discrepancies found'}
 
@@ -937,7 +586,7 @@ ${finalRecommendation.greenFlags.map(g => `✓ ${g}`).join('\n')}
 ----------------------------------------
 RED FLAGS
 ----------------------------------------
-${finalRecommendation.redFlags.length > 0 
+${finalRecommendation.redFlags.length > 0
   ? finalRecommendation.redFlags.map(r => `⚠ ${r}`).join('\n')
   : '• No significant red flags identified'}
 
@@ -959,12 +608,12 @@ Generated by VantaHire AI Interview Platform
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `final-recommendation-${selectedInterview.candidate_name || 'candidate'}-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `final-recommendation-${selectedInterview.candidateName || 'candidate'}-${new Date().toISOString().split('T')[0]}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
+
     toast({
       title: "Downloaded",
       description: "Final recommendation saved to file."
@@ -983,9 +632,9 @@ Generated by VantaHire AI Interview Platform
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "completed": return "bg-accent/20 text-accent";
-      case "in_progress": return "bg-primary/20 text-primary";
-      case "pending": return "bg-muted text-muted-foreground";
+      case "COMPLETED": return "bg-accent/20 text-accent";
+      case "IN_PROGRESS": return "bg-primary/20 text-primary";
+      case "PENDING": return "bg-muted text-muted-foreground";
       default: return "bg-muted text-muted-foreground";
     }
   };
@@ -993,11 +642,9 @@ Generated by VantaHire AI Interview Platform
   const parseSummary = (summaryJson: string | null): InterviewSummary | null => {
     if (!summaryJson) return null;
     try {
-      // First try direct parse
       return JSON.parse(summaryJson);
     } catch {
       try {
-        // Try to extract JSON from markdown code blocks
         let cleaned = summaryJson.trim();
         if (cleaned.startsWith('```json')) {
           cleaned = cleaned.slice(7);
@@ -1025,18 +672,18 @@ Generated by VantaHire AI Interview Platform
   };
 
   const stats = {
-    total: interviews.length,
-    completed: interviews.filter(i => i.status === "completed").length,
-    pending: interviews.filter(i => i.status === "pending").length,
-    avgScore: interviews.filter(i => i.score).reduce((acc, i) => acc + (i.score || 0), 0) / 
-              (interviews.filter(i => i.score).length || 1)
+    total: interviewsList.length,
+    completed: interviewsList.filter(i => i.status === "COMPLETED").length,
+    pending: interviewsList.filter(i => i.status === "PENDING").length,
+    avgScore: interviewsList.filter(i => i.score).reduce((acc, i) => acc + (i.score || 0), 0) /
+              (interviewsList.filter(i => i.score).length || 1)
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return <PageLoadingSkeleton variant="dashboard" showFooter />;
   }
 
-  const selectedSummary = selectedInterview ? parseSummary(selectedInterview.transcript_summary) : null;
+  const selectedSummary = selectedInterview ? parseSummary(selectedInterview.transcriptSummary) : null;
 
   return (
     <AppLayout
@@ -1062,14 +709,12 @@ Generated by VantaHire AI Interview Platform
         {/* Onboarding Progress Tracker */}
         <OnboardingProgress
           hasJobs={jobsCount > 0}
-          hasCandidates={interviews.length > 0}
-          hasCompletedInterview={interviews.some(i => i.status === "completed")}
-          hasBrandingSetup={!!(profile.logo_url || profile.company_name)}
+          hasCandidates={interviewsList.length > 0}
+          hasCompletedInterview={interviewsList.some(i => i.status === "COMPLETED")}
+          hasBrandingSetup={!!(profile.logoFileId || profile.companyName)}
           onCreateJob={() => {
-            // Switch to jobs tab - we'll use a ref or state
             const jobsTab = document.querySelector('[value="jobs"]') as HTMLButtonElement;
             if (jobsTab) jobsTab.click();
-            // Small delay then trigger create job dialog via clicking the button
             setTimeout(() => {
               const createBtn = document.querySelector('[data-tour="create-job"]') as HTMLButtonElement;
               if (createBtn) createBtn.click();
@@ -1144,7 +789,7 @@ Generated by VantaHire AI Interview Platform
             onSubmit={handleBulkInvite}
           />
 
-          {interviews.length === 0 ? (
+          {interviewsList.length === 0 ? (
             <div className="p-12 text-center">
               <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
                 <Users className="w-8 h-8 text-muted-foreground" />
@@ -1158,14 +803,14 @@ Generated by VantaHire AI Interview Platform
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {interviews.map((interview) => (
+              {interviewsList.map((interview) => (
                 <div
                   key={interview.id}
                   className="p-4 hover:bg-secondary/50 transition-colors flex items-center justify-between"
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold">
-                      {(interview.candidate_name || interview.candidate_email)
+                      {(interview.candidateName || interview.candidateEmail)
                         .split(" ")
                         .map((n) => n[0])
                         .join("")
@@ -1174,9 +819,9 @@ Generated by VantaHire AI Interview Platform
                     </div>
                     <div>
                       <div className="font-medium text-foreground">
-                        {interview.candidate_name || interview.candidate_email}
+                        {interview.candidateName || interview.candidateEmail}
                       </div>
-                      <div className="text-sm text-muted-foreground">{interview.job_role}</div>
+                      <div className="text-sm text-muted-foreground">{interview.jobRole}</div>
                     </div>
                   </div>
 
@@ -1188,7 +833,7 @@ Generated by VantaHire AI Interview Platform
                       </div>
                     )}
                     <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(interview.status)}`}>
-                      {interview.status.replace("_", " ")}
+                      {interview.status.replace("_", " ").toLowerCase()}
                     </span>
                     {whatsappMessages[interview.id] && (
                       <div data-tour="whatsapp-status">
@@ -1202,7 +847,7 @@ Generated by VantaHire AI Interview Platform
                       </div>
                     )}
                     <div className="flex items-center gap-1">
-                      {interview.status === "completed" && (
+                      {interview.status === "COMPLETED" && (
                         <>
                           <Button
                             variant="ghost"
@@ -1216,21 +861,17 @@ Generated by VantaHire AI Interview Platform
                             variant="ghost"
                             size="icon"
                             onClick={async () => {
-                              if (interview.recording_url) {
-                                // Get signed URL for the recording
-                                const { data, error } = await supabase.storage
-                                  .from('interview-documents')
-                                  .createSignedUrl(interview.recording_url, 60 * 60); // 1 hour expiry
-                                
-                                if (error || !data?.signedUrl) {
+                              if (interview.recordingGcsKey) {
+                                try {
+                                  const { signedUrl } = await filesApi.getSignedUrl(interview.recordingGcsKey, 60 * 60);
+                                  window.open(signedUrl, "_blank");
+                                } catch (err) {
                                   toast({
                                     variant: "destructive",
                                     title: "Error",
                                     description: "Could not access recording. It may have expired.",
                                   });
-                                  return;
                                 }
-                                window.open(data.signedUrl, "_blank");
                               } else {
                                 toast({
                                   title: "No Recording",
@@ -1238,12 +879,12 @@ Generated by VantaHire AI Interview Platform
                                 });
                               }
                             }}
-                            title={interview.recording_url ? "Watch Recording" : "No recording available"}
-                            className={!interview.recording_url ? "opacity-50" : ""}
+                            title={interview.recordingGcsKey ? "Watch Recording" : "No recording available"}
+                            className={!interview.recordingGcsKey ? "opacity-50" : ""}
                           >
-                            <Video className={`w-4 h-4 ${interview.recording_url ? "text-accent" : "text-muted-foreground"}`} />
+                            <Video className={`w-4 h-4 ${interview.recordingGcsKey ? "text-accent" : "text-muted-foreground"}`} />
                           </Button>
-                          {!interview.transcript_summary && (
+                          {!interview.transcriptSummary && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1256,7 +897,7 @@ Generated by VantaHire AI Interview Platform
                           )}
                         </>
                       )}
-                      {interview.status === "pending" && (
+                      {interview.status === "PENDING" && (
                         <>
                           <Button
                             variant="ghost"
@@ -1336,8 +977,8 @@ Generated by VantaHire AI Interview Platform
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
                         onClick={() => {
-                          const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
-Role: ${selectedInterview.job_role}
+                          const summaryText = `Interview Summary - ${selectedInterview.candidateName || selectedInterview.candidateEmail}
+Role: ${selectedInterview.jobRole}
 Overall Score: ${selectedInterview.score || 'N/A'}/10
 
 AI Summary:
@@ -1387,9 +1028,8 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
                         onClick={() => {
-                          // Generate PDF
                           const doc = new jsPDF();
-                          const candidateName = selectedInterview.candidate_name || selectedInterview.candidate_email;
+                          const candidateName = selectedInterview.candidateName || selectedInterview.candidateEmail;
                           const pageWidth = doc.internal.pageSize.getWidth();
                           let yPos = 20;
                           const margin = 20;
@@ -1404,7 +1044,7 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
                           doc.text("Interview Summary", pageWidth / 2, 25, { align: "center" });
                           doc.setFontSize(10);
                           doc.setFont("helvetica", "normal");
-                          doc.text(profile.company_name || "VantaHire", pageWidth / 2, 34, { align: "center" });
+                          doc.text(profile.companyName || "VantaHire", pageWidth / 2, 34, { align: "center" });
 
                           yPos = 55;
 
@@ -1417,7 +1057,7 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
                           doc.setFontSize(11);
                           doc.setFont("helvetica", "normal");
                           doc.setTextColor(107, 114, 128);
-                          doc.text(selectedInterview.job_role, margin, yPos);
+                          doc.text(selectedInterview.jobRole, margin, yPos);
 
                           // Score
                           if (selectedInterview.score) {
@@ -1448,100 +1088,6 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
                           doc.text(summaryLines.slice(0, 3), margin + 5, yPos);
                           yPos += 28;
 
-                          // Recommendation
-                          doc.setFillColor(248, 248, 252);
-                          doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'F');
-                          yPos += 10;
-                          doc.setTextColor(31, 41, 55);
-                          doc.setFontSize(12);
-                          doc.setFont("helvetica", "bold");
-                          doc.text("Recommendation", margin + 5, yPos);
-                          yPos += 7;
-                          doc.setTextColor(75, 85, 99);
-                          doc.setFontSize(10);
-                          doc.setFont("helvetica", "normal");
-                          const recLines = doc.splitTextToSize(selectedSummary.recommendation, contentWidth - 10);
-                          doc.text(recLines.slice(0, 2), margin + 5, yPos);
-                          yPos += 18;
-
-                          // Scores
-                          doc.setTextColor(31, 41, 55);
-                          doc.setFontSize(12);
-                          doc.setFont("helvetica", "bold");
-                          doc.text("Detailed Scores", margin, yPos);
-                          yPos += 10;
-
-                          const scoreWidth = (contentWidth - 10) / 3;
-                          const scores = [
-                            { label: "Communication", score: selectedSummary.communicationScore },
-                            { label: "Technical", score: selectedSummary.technicalScore },
-                            { label: "Culture Fit", score: selectedSummary.cultureFitScore },
-                          ];
-
-                          scores.forEach((item, idx) => {
-                            const xPos = margin + idx * (scoreWidth + 5);
-                            doc.setFillColor(248, 248, 252);
-                            doc.roundedRect(xPos, yPos, scoreWidth, 25, 3, 3, 'F');
-                            doc.setTextColor(31, 41, 55);
-                            doc.setFontSize(16);
-                            doc.setFont("helvetica", "bold");
-                            doc.text(`${item.score}/10`, xPos + scoreWidth / 2, yPos + 12, { align: "center" });
-                            doc.setFontSize(8);
-                            doc.setFont("helvetica", "normal");
-                            doc.setTextColor(107, 114, 128);
-                            doc.text(item.label, xPos + scoreWidth / 2, yPos + 20, { align: "center" });
-                          });
-
-                          yPos += 35;
-
-                          // Strengths
-                          doc.setFillColor(240, 253, 244);
-                          doc.roundedRect(margin, yPos, contentWidth / 2 - 5, 45, 3, 3, 'F');
-                          doc.setTextColor(22, 101, 52);
-                          doc.setFontSize(11);
-                          doc.setFont("helvetica", "bold");
-                          doc.text("Strengths", margin + 5, yPos + 10);
-                          doc.setTextColor(75, 85, 99);
-                          doc.setFontSize(9);
-                          doc.setFont("helvetica", "normal");
-                          selectedSummary.strengths.slice(0, 3).forEach((s, i) => {
-                            const lines = doc.splitTextToSize(`• ${s}`, contentWidth / 2 - 15);
-                            doc.text(lines[0], margin + 5, yPos + 18 + i * 8);
-                          });
-
-                          // Areas for Improvement
-                          const impX = margin + contentWidth / 2 + 5;
-                          doc.setFillColor(255, 251, 235);
-                          doc.roundedRect(impX, yPos, contentWidth / 2 - 5, 45, 3, 3, 'F');
-                          doc.setTextColor(146, 64, 14);
-                          doc.setFontSize(11);
-                          doc.setFont("helvetica", "bold");
-                          doc.text("Areas for Improvement", impX + 5, yPos + 10);
-                          doc.setTextColor(75, 85, 99);
-                          doc.setFontSize(9);
-                          doc.setFont("helvetica", "normal");
-                          selectedSummary.areasForImprovement.slice(0, 3).forEach((a, i) => {
-                            const lines = doc.splitTextToSize(`• ${a}`, contentWidth / 2 - 15);
-                            doc.text(lines[0], impX + 5, yPos + 18 + i * 8);
-                          });
-
-                          yPos += 55;
-
-                          // Key Takeaways
-                          doc.setFillColor(248, 248, 252);
-                          doc.roundedRect(margin, yPos, contentWidth, 40, 3, 3, 'F');
-                          doc.setTextColor(31, 41, 55);
-                          doc.setFontSize(11);
-                          doc.setFont("helvetica", "bold");
-                          doc.text("Key Takeaways", margin + 5, yPos + 10);
-                          doc.setTextColor(75, 85, 99);
-                          doc.setFontSize(9);
-                          doc.setFont("helvetica", "normal");
-                          selectedSummary.keyTakeaways.slice(0, 3).forEach((t, i) => {
-                            const lines = doc.splitTextToSize(`• ${t}`, contentWidth - 15);
-                            doc.text(lines[0], margin + 5, yPos + 18 + i * 8);
-                          });
-
                           // Footer
                           doc.setTextColor(156, 163, 175);
                           doc.setFontSize(8);
@@ -1560,10 +1106,10 @@ ${selectedSummary.keyTakeaways.map(t => `• ${t}`).join('\n')}`;
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => {
-                          const summaryText = `Interview Summary - ${selectedInterview.candidate_name || selectedInterview.candidate_email}
+                          const summaryText = `Interview Summary - ${selectedInterview.candidateName || selectedInterview.candidateEmail}
 ================================================================================
-Role: ${selectedInterview.job_role}
-Date: ${selectedInterview.completed_at ? new Date(selectedInterview.completed_at).toLocaleDateString() : 'N/A'}
+Role: ${selectedInterview.jobRole}
+Date: ${selectedInterview.completedAt ? new Date(selectedInterview.completedAt).toLocaleDateString() : 'N/A'}
 Overall Score: ${selectedInterview.score || 'N/A'}/10
 
 --------------------------------------------------------------------------------
@@ -1606,7 +1152,7 @@ Generated by VantaHire
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
-                          a.download = `interview-summary-${(selectedInterview.candidate_name || selectedInterview.candidate_email).replace(/\s+/g, '-').toLowerCase()}.txt`;
+                          a.download = `interview-summary-${(selectedInterview.candidateName || selectedInterview.candidateEmail).replace(/\s+/g, '-').toLowerCase()}.txt`;
                           document.body.appendChild(a);
                           a.click();
                           document.body.removeChild(a);
@@ -1627,13 +1173,13 @@ Generated by VantaHire
               )}
             </div>
           </DialogHeader>
-          
+
           {selectedInterview && (
             <div className="space-y-6 mt-4">
               {/* Candidate Info */}
               <div className="flex items-center gap-4 p-4 bg-secondary/50 rounded-xl">
                 <div className="w-12 h-12 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-lg">
-                  {(selectedInterview.candidate_name || selectedInterview.candidate_email)
+                  {(selectedInterview.candidateName || selectedInterview.candidateEmail)
                     .split(" ")
                     .map((n) => n[0])
                     .join("")
@@ -1642,9 +1188,9 @@ Generated by VantaHire
                 </div>
                 <div>
                   <div className="font-semibold text-foreground">
-                    {selectedInterview.candidate_name || selectedInterview.candidate_email}
+                    {selectedInterview.candidateName || selectedInterview.candidateEmail}
                   </div>
-                  <div className="text-sm text-muted-foreground">{selectedInterview.job_role}</div>
+                  <div className="text-sm text-muted-foreground">{selectedInterview.jobRole}</div>
                 </div>
                 {selectedInterview.score && (
                   <div className="ml-auto text-right">
@@ -1735,7 +1281,7 @@ Generated by VantaHire
               )}
 
               {/* Video Recording */}
-              {selectedInterview.recording_url && (
+              {selectedInterview.recordingGcsKey && (
                 <div className="p-4 bg-card rounded-xl border border-border">
                   <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                     <h4 className="font-semibold text-foreground flex items-center gap-2">
@@ -1746,25 +1292,11 @@ Generated by VantaHire
                         variant="outline"
                         size="sm"
                         onClick={async () => {
-                          if (!selectedInterview.recording_url) return;
-                          
+                          if (!selectedInterview.id) return;
+
                           setTranscribingVideo(true);
-                          const accessToken = await getFreshAccessToken();
-                          if (!accessToken) {
-                            setTranscribingVideo(false);
-                            return;
-                          }
-
                           try {
-                            const { data, error } = await supabase.functions.invoke("transcribe-video", {
-                              headers: { Authorization: `Bearer ${accessToken}` },
-                              body: {
-                                interviewId: selectedInterview.id,
-                                recordingPath: selectedInterview.recording_url
-                              }
-                            });
-
-                            if (error) throw error;
+                            const data = await interviewsApi.transcribeRecording(selectedInterview.id);
 
                             if (data?.success) {
                               setVideoTranscription(data.transcription);
@@ -1774,7 +1306,7 @@ Generated by VantaHire
                                 description: "Video has been transcribed successfully.",
                               });
                             } else {
-                              throw new Error(data?.error || "Transcription failed");
+                              throw new Error("Transcription failed");
                             }
                           } catch (err: any) {
                             console.error("Transcription error:", err);
@@ -1807,9 +1339,9 @@ Generated by VantaHire
                             variant="outline"
                             size="sm"
                             onClick={() => {
-                              let content = `Video Transcription - ${selectedInterview.candidate_name || selectedInterview.candidate_email}\n`;
-                              content += `Job Role: ${selectedInterview.job_role}\n`;
-                              content += `Date: ${selectedInterview.completed_at ? new Date(selectedInterview.completed_at).toLocaleDateString() : "N/A"}\n`;
+                              let content = `Video Transcription - ${selectedInterview.candidateName || selectedInterview.candidateEmail}\n`;
+                              content += `Job Role: ${selectedInterview.jobRole}\n`;
+                              content += `Date: ${selectedInterview.completedAt ? new Date(selectedInterview.completedAt).toLocaleDateString() : "N/A"}\n`;
                               content += `${"=".repeat(60)}\n\n`;
 
                               if (videoTranscriptionDetailed.length > 0) {
@@ -1825,7 +1357,7 @@ Generated by VantaHire
                               const url = URL.createObjectURL(blob);
                               const a = document.createElement("a");
                               a.href = url;
-                              a.download = `video-transcription-${(selectedInterview.candidate_name || selectedInterview.candidate_email).replace(/\s+/g, "-").toLowerCase()}.txt`;
+                              a.download = `video-transcription-${(selectedInterview.candidateName || selectedInterview.candidateEmail).replace(/\s+/g, "-").toLowerCase()}.txt`;
                               document.body.appendChild(a);
                               a.click();
                               document.body.removeChild(a);
@@ -1908,7 +1440,7 @@ Generated by VantaHire
                           Current time: {formatTime(videoCurrentTime)}
                         </span>
                       </div>
-                      
+
                       <div className="grid md:grid-cols-2 gap-4">
                         {/* Video Transcription */}
                         <div className="bg-secondary/30 rounded-lg p-3">
@@ -2024,7 +1556,7 @@ Generated by VantaHire
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground mt-2">
-                          The video transcription captures the actual spoken words from the recording, while the chat transcript shows the text-based conversation. 
+                          The video transcription captures the actual spoken words from the recording, while the chat transcript shows the text-based conversation.
                           Differences may occur due to speech patterns, filler words, or interruptions not captured in text.
                         </p>
                       </div>
@@ -2252,25 +1784,25 @@ Generated by VantaHire
               <InterviewScreenshotsGallery interviewId={selectedInterview.id} />
 
               {/* Documents */}
-              {(selectedInterview.candidate_resume_url || selectedInterview.candidate_notes) && (
+              {(selectedInterview.candidateResumeFileId || selectedInterview.candidateNotes) && (
                 <div className="p-4 bg-card rounded-xl border border-border">
                   <h4 className="font-semibold text-foreground mb-3">Candidate Documents</h4>
-                  {selectedInterview.candidate_resume_url && (
+                  {selectedInterview.candidateResumeFileId && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(selectedInterview.candidate_resume_url!, "_blank")}
+                      onClick={() => window.open(filesApi.getUrl(selectedInterview.candidateResumeFileId!), "_blank")}
                       className="mr-2"
                     >
                       <FileText className="w-4 h-4 mr-2" />
                       View Resume
                     </Button>
                   )}
-                  {selectedInterview.candidate_notes && (
+                  {selectedInterview.candidateNotes && (
                     <div className="mt-3">
                       <p className="text-sm text-muted-foreground font-medium mb-1">Candidate Notes:</p>
                       <p className="text-sm text-muted-foreground bg-secondary/50 p-3 rounded-lg">
-                        {selectedInterview.candidate_notes}
+                        {selectedInterview.candidateNotes}
                       </p>
                     </div>
                   )}
@@ -2307,9 +1839,9 @@ Generated by VantaHire
             {selectedInterview && selectedSummary && (
               <div className="p-3 bg-secondary/50 rounded-lg text-sm">
                 <p className="font-medium text-foreground">
-                  {selectedInterview.candidate_name || selectedInterview.candidate_email}
+                  {selectedInterview.candidateName || selectedInterview.candidateEmail}
                 </p>
-                <p className="text-muted-foreground">{selectedInterview.job_role}</p>
+                <p className="text-muted-foreground">{selectedInterview.jobRole}</p>
                 {selectedInterview.score && (
                   <p className="text-primary font-medium mt-1">Score: {selectedInterview.score}/10</p>
                 )}
@@ -2322,39 +1854,14 @@ Generated by VantaHire
             </Button>
             <Button
               onClick={async () => {
-                if (!shareEmail || !selectedInterview || !selectedSummary) return;
-                
+                if (!shareEmail || !selectedInterview) return;
+
                 setSendingEmail(true);
-                const accessToken = await getFreshAccessToken();
-                if (!accessToken) {
-                  setSendingEmail(false);
-                  return;
-                }
-
                 try {
-                  const { error } = await supabase.functions.invoke("send-summary-email", {
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`
-                    },
-                    body: {
-                      recipientEmail: shareEmail,
-                      candidateName: selectedInterview.candidate_name || selectedInterview.candidate_email,
-                      jobRole: selectedInterview.job_role,
-                      overallScore: selectedInterview.score,
-                      summary: selectedSummary.summary,
-                      recommendation: selectedSummary.recommendation,
-                      communicationScore: selectedSummary.communicationScore,
-                      technicalScore: selectedSummary.technicalScore,
-                      cultureFitScore: selectedSummary.cultureFitScore,
-                      strengths: selectedSummary.strengths,
-                      areasForImprovement: selectedSummary.areasForImprovement,
-                      keyTakeaways: selectedSummary.keyTakeaways,
-                      senderName: user?.email || 'A recruiter',
-                      companyName: profile.company_name || 'VantaHire',
-                    }
+                  await interviewsApi.shareSummary(selectedInterview.id, {
+                    recipientEmail: shareEmail,
+                    includeVideo: false,
                   });
-
-                  if (error) throw error;
 
                   toast({
                     title: "Email Sent",
@@ -2417,9 +1924,9 @@ Generated by VantaHire
             {selectedInterview && (
               <div className="p-3 bg-secondary/50 rounded-lg text-sm">
                 <p className="font-medium text-foreground">
-                  {selectedInterview.candidate_name || selectedInterview.candidate_email}
+                  {selectedInterview.candidateName || selectedInterview.candidateEmail}
                 </p>
-                <p className="text-muted-foreground">{selectedInterview.job_role}</p>
+                <p className="text-muted-foreground">{selectedInterview.jobRole}</p>
                 <p className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                   <Video className="w-3 h-3" /> Video recording included
                 </p>
@@ -2435,50 +1942,14 @@ Generated by VantaHire
             </Button>
             <Button
               onClick={async () => {
-                if (!videoShareEmail || !selectedInterview || !selectedInterview.recording_url) return;
-                
+                if (!videoShareEmail || !selectedInterview) return;
+
                 setSendingVideoEmail(true);
-                
                 try {
-                  // Generate a longer-lived signed URL (7 days)
-                  const { data: urlData, error: urlError } = await supabase.storage
-                    .from('interview-documents')
-                    .createSignedUrl(selectedInterview.recording_url, 60 * 60 * 24 * 7);
-                  
-                  if (urlError || !urlData?.signedUrl) {
-                    throw new Error("Could not generate video link");
-                  }
-
-                  const accessToken = await getFreshAccessToken();
-                  if (!accessToken) {
-                    setSendingVideoEmail(false);
-                    return;
-                  }
-
-                  const { error } = await supabase.functions.invoke("send-summary-email", {
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`
-                    },
-                    body: {
-                      recipientEmail: videoShareEmail,
-                      candidateName: selectedInterview.candidate_name || selectedInterview.candidate_email,
-                      jobRole: selectedInterview.job_role,
-                      overallScore: selectedInterview.score,
-                      summary: `Video recording of the interview is available.\n\n📹 Watch Recording: ${urlData.signedUrl}\n\nNote: This link expires in 7 days.`,
-                      recommendation: "Please watch the video recording for a complete assessment.",
-                      communicationScore: 0,
-                      technicalScore: 0,
-                      cultureFitScore: 0,
-                      strengths: ["Video recording available for review"],
-                      areasForImprovement: [],
-                      keyTakeaways: ["Watch the full interview recording for detailed assessment"],
-                      senderName: user?.email || 'A recruiter',
-                      companyName: profile.company_name || 'VantaHire',
-                      videoUrl: urlData.signedUrl,
-                    }
+                  await interviewsApi.shareSummary(selectedInterview.id, {
+                    recipientEmail: videoShareEmail,
+                    includeVideo: true,
                   });
-
-                  if (error) throw error;
 
                   toast({
                     title: "Video Shared",

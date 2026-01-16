@@ -1,0 +1,432 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTH & USERS (Sessions are Redis-only)
+// ═══════════════════════════════════════════════════════════════
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  role       UserRole @default(RECRUITER)
+
+  // OAuth
+  provider   String // "google" | "linkedin"
+  providerId String
+
+  // Basic info
+  fullName  String?
+  avatarUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  recruiterProfile RecruiterProfile?
+  candidateProfile CandidateProfile?
+  interviews       Interview[]
+  jobs             Job[]
+  apiKeys          ApiKey[]
+  files            File[]
+
+  @@unique([provider, providerId])
+  @@index([email])
+}
+
+enum UserRole {
+  RECRUITER
+  CANDIDATE
+  ADMIN
+}
+
+model RecruiterProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  companyName String?
+  logoFileId  String? @unique
+  logoFile    File?   @relation("RecruiterLogo", fields: [logoFileId], references: [id], onDelete: SetNull)
+  brandColor  String?
+
+  emailIntro   String?
+  emailTips    String?
+  emailCtaText String?
+
+  subscriptionStatus    SubscriptionStatus @default(FREE)
+  subscriptionUpdatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum SubscriptionStatus {
+  FREE
+  PAID
+  ENTERPRISE
+}
+
+model CandidateProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName        String?
+  email           String?
+  phone           String?
+  bio             String?
+  skills          String[] @default([])
+  experienceYears Int?
+  resumeFileId    String?  @unique
+  resumeFile      File?    @relation("CandidateResume", fields: [resumeFileId], references: [id], onDelete: SetNull)
+  linkedinUrl     String?
+  portfolioUrl    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INTERVIEWS
+// ═══════════════════════════════════════════════════════════════
+
+model Interview {
+  id          String @id @default(uuid())
+  recruiterId String
+  recruiter   User   @relation(fields: [recruiterId], references: [id])
+
+  jobId String?
+  job   Job?    @relation(fields: [jobId], references: [id])
+
+  candidateEmail        String
+  candidateName         String?
+  candidateNotes        String?
+  candidateResumeFileId String?  @unique
+  candidateResumeFile   File?    @relation("InterviewResume", fields: [candidateResumeFileId], references: [id], onDelete: SetNull)
+  candidateUserId       String?
+
+  jobRole          String
+  type             InterviewType   @default(TEXT)
+  timeLimitMinutes Int             @default(30)
+
+  status       InterviewStatus @default(PENDING)
+  interviewUrl String?
+  expiresAt    DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  score             Int?
+  transcriptSummary String?
+  recordingGcsKey   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages         InterviewMessage[]
+  sessions         InterviewSession[]
+  emailMessages    EmailMessage[]
+  whatsappMessages WhatsAppMessage[]
+  files            File[]             @relation("InterviewFiles")
+
+  @@index([recruiterId])
+  @@index([status])
+  @@index([candidateEmail])
+}
+
+enum InterviewType {
+  TEXT
+  VOICE
+}
+
+enum InterviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+}
+
+model InterviewMessage {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  role    String // "user" | "assistant" | "system"
+  content String
+
+  createdAt DateTime @default(now())
+
+  @@index([interviewId])
+}
+
+// Token-based candidate access
+model InterviewSession {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  token String @unique // nanoid(32)
+
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  lastAccessedAt DateTime?
+  accessCount    Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([interviewId])
+  @@index([expiresAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// JOBS
+// ═══════════════════════════════════════════════════════════════
+
+model Job {
+  id          String @id @default(uuid())
+  recruiterId String
+  recruiter   User   @relation(fields: [recruiterId], references: [id])
+
+  title       String
+  description String?
+  department  String?
+  location    String?
+  jobType     String?
+  salaryRange String?
+
+  status          JobStatus      @default(DRAFT)
+  approvalStatus  ApprovalStatus @default(PENDING)
+  approvedAt      DateTime?
+  approvedBy      String?
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interviews   Interview[]
+  applications JobApplication[]
+
+  @@index([recruiterId])
+  @@index([status])
+  @@index([approvalStatus])
+}
+
+enum JobStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model JobApplication {
+  id          String @id @default(uuid())
+  jobId       String
+  job         Job    @relation(fields: [jobId], references: [id])
+
+  candidateId  String
+  coverLetter  String?
+  resumeFileId String? @unique
+  resumeFile   File?   @relation("ApplicationResume", fields: [resumeFileId], references: [id], onDelete: SetNull)
+  notes        String?
+
+  status     ApplicationStatus @default(PENDING)
+  reviewedAt DateTime?
+
+  appliedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files File[] @relation("ApplicationFiles")
+
+  @@index([jobId])
+  @@index([candidateId])
+  @@index([status])
+}
+
+enum ApplicationStatus {
+  PENDING
+  REVIEWED
+  SHORTLISTED
+  REJECTED
+  HIRED
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MESSAGING
+// ═══════════════════════════════════════════════════════════════
+
+model EmailMessage {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id])
+
+  recipientEmail String
+  messageId      String? @unique
+
+  status       String    @default("pending")
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  openedAt     DateTime?
+  bouncedAt    DateTime?
+  failedAt     DateTime?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([interviewId])
+  @@index([messageId])
+}
+
+model WhatsAppMessage {
+  id          String    @id @default(uuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id])
+
+  candidatePhone String
+  messageId      String? @unique
+
+  status       String    @default("pending")
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  failedAt     DateTime?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([interviewId])
+  @@index([messageId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FILES (Streamed from Postgres)
+// ═══════════════════════════════════════════════════════════════
+
+model File {
+  id       String       @id @default(uuid())
+  name     String
+  mimeType String
+  size     Int
+  category FileCategory
+
+  // Owner (authenticated user who uploaded)
+  uploadedBy String?
+  user       User?   @relation(fields: [uploadedBy], references: [id])
+
+  // Context associations for auth
+  interviewId      String?
+  interview        Interview?      @relation("InterviewFiles", fields: [interviewId], references: [id], onDelete: Cascade)
+  jobApplicationId String?
+  jobApplication   JobApplication? @relation("ApplicationFiles", fields: [jobApplicationId], references: [id], onDelete: Cascade)
+
+  // Back-relations for named relations (1:1 relations pointing to this file)
+  recruiterLogoFor      RecruiterProfile?  @relation("RecruiterLogo")
+  candidateResumeFor    CandidateProfile?  @relation("CandidateResume")
+  interviewResumeFor    Interview?         @relation("InterviewResume")
+  applicationResumeFor  JobApplication?    @relation("ApplicationResume")
+
+  data Bytes
+
+  createdAt DateTime @default(now())
+
+  @@index([category])
+  @@index([uploadedBy])
+  @@index([interviewId])
+  @@index([jobApplicationId])
+}
+
+enum FileCategory {
+  LOGO
+  RESUME
+  SCREENSHOT
+  DOCUMENT
+}
+
+// ═══════════════════════════════════════════════════════════════
+// API KEYS
+// ═══════════════════════════════════════════════════════════════
+
+model ApiKey {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  name      String
+  keyHash   String       @unique
+  keyPrefix String
+
+  scopes    String[]     @default([])
+  status    ApiKeyStatus @default(ACTIVE)
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  rateLimitPerDay Int       @default(1000)
+  requestsToday   Int       @default(0)
+  lastResetAt     DateTime?
+  lastRequestAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  usageLogs ApiUsageLog[]
+
+  @@index([userId])
+  @@index([keyHash])
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model ApiUsageLog {
+  id       String @id @default(uuid())
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id])
+
+  endpoint       String
+  method         String
+  statusCode     Int?
+  responseTimeMs Int?
+  ipAddress      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([apiKeyId])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN
+// ═══════════════════════════════════════════════════════════════
+
+model AdminSettings {
+  id               String @id @default(uuid())
+  secretSignupCode String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OnboardingReminder {
+  id           String   @id @default(uuid())
+  userId       String
+  reminderType String
+  tasksPending String[]
+
+  sentAt DateTime @default(now())
+
+  @@index([userId])
+}

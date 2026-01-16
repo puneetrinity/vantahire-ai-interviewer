@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState, useCallback } from "react";
+import {
+  applications as applicationsApi,
+  interviews as interviewsApi,
+  files as filesApi,
+  type ApplicationWithDetails,
+} from "@/lib/api";
+import { useSocket } from "@/hooks/useSocket";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import CandidateFormFields, { CandidateFormData } from "@/components/CandidateFormFields";
@@ -44,134 +51,55 @@ import {
   Loader2,
   UserPlus,
 } from "lucide-react";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { format } from "date-fns";
 
-interface JobApplication {
-  id: string;
-  job_id: string;
-  candidate_id: string;
-  status: string;
-  cover_letter: string | null;
-  resume_url: string | null;
-  notes: string | null;
-  applied_at: string;
-  updated_at: string;
-  reviewed_at: string | null;
-  jobs: {
-    id: string;
-    title: string;
-    department: string | null;
-    location: string | null;
-  } | null;
-  candidate_profiles: {
-    full_name: string | null;
-    email: string | null;
-    phone: string | null;
-    bio: string | null;
-    skills: string[] | null;
-    experience_years: number | null;
-    linkedin_url: string | null;
-    portfolio_url: string | null;
-  } | null;
-}
-
-interface ApplicationsTabProps {
-  user: SupabaseUser | null;
-}
-
 const statusOptions = [
-  { value: "pending", label: "Pending Review", color: "bg-yellow-500/10 text-yellow-600 border-yellow-200" },
-  { value: "reviewed", label: "Reviewed", color: "bg-blue-500/10 text-blue-600 border-blue-200" },
-  { value: "shortlisted", label: "Shortlisted", color: "bg-green-500/10 text-green-600 border-green-200" },
-  { value: "interview_scheduled", label: "Interview Scheduled", color: "bg-purple-500/10 text-purple-600 border-purple-200" },
-  { value: "rejected", label: "Rejected", color: "bg-red-500/10 text-red-600 border-red-200" },
-  { value: "hired", label: "Hired", color: "bg-emerald-500/10 text-emerald-600 border-emerald-200" },
+  { value: "PENDING", label: "Pending Review", color: "bg-yellow-500/10 text-yellow-600 border-yellow-200" },
+  { value: "REVIEWED", label: "Reviewed", color: "bg-blue-500/10 text-blue-600 border-blue-200" },
+  { value: "SHORTLISTED", label: "Shortlisted", color: "bg-green-500/10 text-green-600 border-green-200" },
+  { value: "INTERVIEW_SCHEDULED", label: "Interview Scheduled", color: "bg-purple-500/10 text-purple-600 border-purple-200" },
+  { value: "REJECTED", label: "Rejected", color: "bg-red-500/10 text-red-600 border-red-200" },
+  { value: "HIRED", label: "Hired", color: "bg-emerald-500/10 text-emerald-600 border-emerald-200" },
 ];
 
-const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
-  const [applications, setApplications] = useState<JobApplication[]>([]);
+const ApplicationsTab = () => {
+  const { user } = useAuth();
+  const [applications, setApplications] = useState<ApplicationWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedApplication, setSelectedApplication] = useState<JobApplication | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<ApplicationWithDetails | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterJob, setFilterJob] = useState<string>("all");
   const [jobs, setJobs] = useState<{ id: string; title: string }[]>([]);
   const [schedulingInterview, setSchedulingInterview] = useState<string | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
-  const [applicationToSchedule, setApplicationToSchedule] = useState<JobApplication | null>(null);
+  const [applicationToSchedule, setApplicationToSchedule] = useState<ApplicationWithDetails | null>(null);
   const [candidateForm, setCandidateForm] = useState<CandidateFormData>({
     email: "",
     name: "",
     phone: ""
   });
   const { toast } = useToast();
+  const { socket } = useSocket();
 
-  const fetchApplications = async () => {
+  const fetchApplications = useCallback(async () => {
     if (!user) return;
-    
+
     try {
       setLoading(true);
-      
-      // First, fetch applications with jobs (filtering by recruiter)
-      const { data: appData, error: appError } = await supabase
-        .from("job_applications")
-        .select(`
-          *,
-          jobs!inner (
-            id,
-            title,
-            department,
-            location,
-            recruiter_id
-          )
-        `)
-        .eq("jobs.recruiter_id", user.id)
-        .order("applied_at", { ascending: false });
+      const response = await applicationsApi.list({ limit: 100 });
+      setApplications(response.data);
 
-      if (appError) throw appError;
-      
-      if (!appData || appData.length === 0) {
-        setApplications([]);
-        setJobs([]);
-        setLoading(false);
-        return;
-      }
-
-      // Get unique candidate IDs
-      const candidateIds = [...new Set(appData.map(app => app.candidate_id))];
-      
-      // Fetch candidate profiles separately
-      const { data: profilesData, error: profilesError } = await supabase
-        .from("candidate_profiles")
-        .select("user_id, full_name, email, phone, bio, skills, experience_years, linkedin_url, portfolio_url")
-        .in("user_id", candidateIds);
-
-      if (profilesError) {
-        console.error("Error fetching profiles:", profilesError);
-      }
-
-      // Create a map of candidate profiles
-      const profilesMap = new Map(
-        (profilesData || []).map(p => [p.user_id, p])
-      );
-
-      // Merge applications with candidate profiles
-      const mergedData = appData.map(app => ({
-        ...app,
-        candidate_profiles: profilesMap.get(app.candidate_id) || null
-      }));
-
-      setApplications(mergedData as unknown as JobApplication[]);
-      
       // Extract unique jobs for filter
       const uniqueJobs = Array.from(
         new Map(
-          appData.map((app: any) => [app.jobs?.id, { id: app.jobs?.id, title: app.jobs?.title }])
+          response.data
+            .filter(app => app.job)
+            .map(app => [app.job!.id, { id: app.job!.id, title: app.job!.title }])
         ).values()
-      ).filter(job => job.id && job.title);
+      );
       setJobs(uniqueJobs);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error fetching applications:", error);
       toast({
         variant: "destructive",
@@ -181,48 +109,34 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, toast]);
 
   useEffect(() => {
     fetchApplications();
-  }, [user]);
+  }, [fetchApplications]);
 
-  // Real-time subscription
+  // Listen for realtime updates via socket.io
   useEffect(() => {
-    if (!user) return;
+    if (!socket) return;
 
-    const channel = supabase
-      .channel("applications-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "job_applications",
-        },
-        () => {
-          fetchApplications();
-        }
-      )
-      .subscribe();
+    const handleApplicationUpdate = () => {
+      fetchApplications();
+    };
+
+    socket.on("application:created", handleApplicationUpdate);
+    socket.on("application:updated", handleApplicationUpdate);
+    socket.on("application:deleted", handleApplicationUpdate);
 
     return () => {
-      supabase.removeChannel(channel);
+      socket.off("application:created", handleApplicationUpdate);
+      socket.off("application:updated", handleApplicationUpdate);
+      socket.off("application:deleted", handleApplicationUpdate);
     };
-  }, [user]);
+  }, [socket, fetchApplications]);
 
   const updateApplicationStatus = async (applicationId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("job_applications")
-        .update({
-          status: newStatus,
-          reviewed_at: newStatus !== "pending" ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", applicationId);
-
-      if (error) throw error;
+      await applicationsApi.updateStatus(applicationId, newStatus as ApplicationWithDetails['status']);
 
       toast({
         title: "Status Updated",
@@ -233,11 +147,11 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
       setApplications((prev) =>
         prev.map((app) =>
           app.id === applicationId
-            ? { ...app, status: newStatus, updated_at: new Date().toISOString() }
+            ? { ...app, status: newStatus as ApplicationWithDetails['status'], updatedAt: new Date().toISOString() }
             : app
         )
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating status:", error);
       toast({
         variant: "destructive",
@@ -247,22 +161,22 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
     }
   };
 
-  const openScheduleDialog = (application: JobApplication) => {
+  const openScheduleDialog = (application: ApplicationWithDetails) => {
     setApplicationToSchedule(application);
     setCandidateForm({
-      email: application.candidate_profiles?.email || "",
-      name: application.candidate_profiles?.full_name || "",
-      phone: application.candidate_profiles?.phone || ""
+      email: application.candidate?.email || "",
+      name: application.candidate?.fullName || "",
+      phone: application.candidate?.phone || ""
     });
     setScheduleDialogOpen(true);
   };
 
   const scheduleInterview = async () => {
     if (!user || !applicationToSchedule) return;
-    
+
     const { email, name, phone } = candidateForm;
-    const jobTitle = applicationToSchedule.jobs?.title;
-    
+    const jobTitle = applicationToSchedule.job?.title;
+
     if (!email || !name || !phone) {
       toast({
         variant: "destructive",
@@ -271,77 +185,47 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
       });
       return;
     }
-    
+
     setSchedulingInterview(applicationToSchedule.id);
-    
+
     try {
       // Create interview record
-      const { data: interview, error: interviewError } = await supabase
-        .from("interviews")
-        .insert({
-          recruiter_id: user.id,
-          candidate_email: email,
-          candidate_name: name,
-          job_role: jobTitle || "Position",
-          job_id: applicationToSchedule.job_id,
-          status: "pending",
-          time_limit_minutes: 30,
-          candidate_resume_url: applicationToSchedule.resume_url || null,
-        })
-        .select()
-        .single();
+      const interview = await interviewsApi.create({
+        candidateEmail: email,
+        candidateName: name,
+        candidatePhone: phone,
+        jobRole: jobTitle || "Position",
+        jobId: applicationToSchedule.jobId,
+        timeLimitMinutes: 30,
+        candidateResumeFileId: applicationToSchedule.resumeFileId || undefined,
+      });
 
-      if (interviewError) throw interviewError;
-
-      const interviewUrl = `${window.location.origin}/voice-interview/${interview.id}`;
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token;
-      
       // Send email invite
       try {
-        if (accessToken) {
-          await supabase.functions.invoke("send-candidate-invite", {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            },
-            body: {
-              candidateEmail: email,
-              candidateName: name,
-              jobRole: jobTitle || "Position",
-              interviewId: interview.id,
-              interviewUrl,
-              recruiterId: user.id
-            }
-          });
-        }
+        await interviewsApi.sendEmailInvite(interview.id);
       } catch (emailError) {
         console.error("Failed to send email invitation:", emailError);
       }
 
       // Send WhatsApp invite
       try {
-        if (accessToken) {
-          await supabase.functions.invoke("send-whatsapp-invite", {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            },
-            body: {
-              candidateName: name,
-              candidatePhone: phone,
-              jobRole: jobTitle || "Position",
-              interviewId: interview.id,
-              interviewUrl
-            }
-          });
-        }
+        await interviewsApi.sendWhatsAppInvite(interview.id, phone);
       } catch (whatsappError) {
         console.error("Failed to send WhatsApp invitation:", whatsappError);
       }
 
-      // Remove the application from the list (moves to Interviews tab)
-      setApplications((prev) => prev.filter((app) => app.id !== applicationToSchedule.id));
-      
+      // Update the application status to interview_scheduled
+      await applicationsApi.updateStatus(applicationToSchedule.id, 'SHORTLISTED');
+
+      // Update local state
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === applicationToSchedule.id
+            ? { ...app, status: 'SHORTLISTED' as const }
+            : app
+        )
+      );
+
       // Close dialogs
       setScheduleDialogOpen(false);
       setDetailsOpen(false);
@@ -352,7 +236,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
         title: "Interview Scheduled",
         description: `AI interview created for ${name}. Invites sent via email and WhatsApp.`,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error scheduling interview:", error);
       toast({
         variant: "destructive",
@@ -373,21 +257,10 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
     );
   };
 
-  const openResumeUrl = async (resumeUrl: string) => {
+  const openResumeUrl = async (resumeFileId: string) => {
     try {
-      const { data, error } = await supabase.storage
-        .from("interview-documents")
-        .createSignedUrl(resumeUrl, 60 * 60);
-
-      if (error || !data?.signedUrl) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Could not access resume file",
-        });
-        return;
-      }
-      window.open(data.signedUrl, "_blank");
+      const { signedUrl } = await filesApi.getSignedUrl(resumeFileId, 3600);
+      window.open(signedUrl, "_blank");
     } catch (error) {
       console.error("Error accessing resume:", error);
       toast({
@@ -400,23 +273,23 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
 
   const filteredApplications = applications.filter((app) => {
     if (filterStatus !== "all" && app.status !== filterStatus) return false;
-    if (filterJob !== "all" && app.job_id !== filterJob) return false;
+    if (filterJob !== "all" && app.jobId !== filterJob) return false;
     return true;
   });
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "pending":
+      case "PENDING":
         return <Clock className="w-4 h-4" />;
-      case "reviewed":
+      case "REVIEWED":
         return <Eye className="w-4 h-4" />;
-      case "shortlisted":
+      case "SHORTLISTED":
         return <CheckCircle className="w-4 h-4" />;
-      case "interview_scheduled":
+      case "INTERVIEW_SCHEDULED":
         return <Video className="w-4 h-4" />;
-      case "rejected":
+      case "REJECTED":
         return <XCircle className="w-4 h-4" />;
-      case "hired":
+      case "HIRED":
         return <CheckCircle className="w-4 h-4" />;
       default:
         return <Clock className="w-4 h-4" />;
@@ -507,7 +380,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-primary-foreground font-semibold text-sm">
-                        {(application.candidate_profiles?.full_name || "?")
+                        {(application.candidate?.fullName || "?")
                           .split(" ")
                           .map((n) => n[0])
                           .join("")
@@ -516,11 +389,11 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                       </div>
                       <div>
                         <div className="font-medium text-foreground">
-                          {application.candidate_profiles?.full_name || "Unknown"}
+                          {application.candidate?.fullName || "Unknown"}
                         </div>
                         <div className="text-sm text-muted-foreground flex items-center gap-1">
                           <Mail className="w-3 h-3" />
-                          {application.candidate_profiles?.email || "No email"}
+                          {application.candidate?.email || "No email"}
                         </div>
                       </div>
                     </div>
@@ -528,18 +401,18 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Briefcase className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-medium">{application.jobs?.title}</span>
+                      <span className="font-medium">{application.job?.title}</span>
                     </div>
-                    {application.jobs?.department && (
+                    {application.job?.department && (
                       <div className="text-sm text-muted-foreground mt-1">
-                        {application.jobs.department}
+                        {application.job.department}
                       </div>
                     )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Calendar className="w-4 h-4" />
-                      {format(new Date(application.applied_at), "MMM d, yyyy")}
+                      {format(new Date(application.appliedAt), "MMM d, yyyy")}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -567,7 +440,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {(application.status === "shortlisted" || application.status === "reviewed") && (
+                      {(application.status === "SHORTLISTED" || application.status === "REVIEWED") && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -583,11 +456,11 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                           )}
                         </Button>
                       )}
-                      {application.resume_url && (
+                      {application.resumeFileId && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => openResumeUrl(application.resume_url!)}
+                          onClick={() => openResumeUrl(application.resumeFileId!)}
                           title="View Resume"
                         >
                           <Download className="w-4 h-4" />
@@ -633,42 +506,42 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Full Name</label>
-                    <p className="font-medium">{selectedApplication.candidate_profiles?.full_name || "N/A"}</p>
+                    <p className="font-medium">{selectedApplication.candidate?.fullName || "N/A"}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Email</label>
                     <p className="font-medium flex items-center gap-1">
                       <Mail className="w-3 h-3" />
-                      {selectedApplication.candidate_profiles?.email || "N/A"}
+                      {selectedApplication.candidate?.email || "N/A"}
                     </p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Phone</label>
                     <p className="font-medium flex items-center gap-1">
                       <Phone className="w-3 h-3" />
-                      {selectedApplication.candidate_profiles?.phone || "N/A"}
+                      {selectedApplication.candidate?.phone || "N/A"}
                     </p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Experience</label>
                     <p className="font-medium">
-                      {selectedApplication.candidate_profiles?.experience_years
-                        ? `${selectedApplication.candidate_profiles.experience_years} years`
+                      {selectedApplication.candidate?.experienceYears
+                        ? `${selectedApplication.candidate.experienceYears} years`
                         : "N/A"}
                     </p>
                   </div>
                 </div>
-                {selectedApplication.candidate_profiles?.bio && (
+                {selectedApplication.candidate?.bio && (
                   <div className="mt-4">
                     <label className="text-sm text-muted-foreground">Bio</label>
-                    <p className="text-sm mt-1">{selectedApplication.candidate_profiles.bio}</p>
+                    <p className="text-sm mt-1">{selectedApplication.candidate.bio}</p>
                   </div>
                 )}
-                {selectedApplication.candidate_profiles?.skills && selectedApplication.candidate_profiles.skills.length > 0 && (
+                {selectedApplication.candidate?.skills && selectedApplication.candidate.skills.length > 0 && (
                   <div className="mt-4">
                     <label className="text-sm text-muted-foreground">Skills</label>
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedApplication.candidate_profiles.skills.map((skill, i) => (
+                      {selectedApplication.candidate.skills.map((skill, i) => (
                         <Badge key={i} variant="secondary">
                           {skill}
                         </Badge>
@@ -677,20 +550,20 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   </div>
                 )}
                 <div className="flex gap-2 mt-4">
-                  {selectedApplication.candidate_profiles?.linkedin_url && (
+                  {selectedApplication.candidate?.linkedinUrl && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(selectedApplication.candidate_profiles?.linkedin_url!, "_blank")}
+                      onClick={() => window.open(selectedApplication.candidate?.linkedinUrl!, "_blank")}
                     >
                       LinkedIn
                     </Button>
                   )}
-                  {selectedApplication.candidate_profiles?.portfolio_url && (
+                  {selectedApplication.candidate?.portfolioUrl && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(selectedApplication.candidate_profiles?.portfolio_url!, "_blank")}
+                      onClick={() => window.open(selectedApplication.candidate?.portfolioUrl!, "_blank")}
                     >
                       Portfolio
                     </Button>
@@ -707,38 +580,38 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Job Title</label>
-                    <p className="font-medium">{selectedApplication.jobs?.title}</p>
+                    <p className="font-medium">{selectedApplication.job?.title}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Department</label>
-                    <p className="font-medium">{selectedApplication.jobs?.department || "N/A"}</p>
+                    <p className="font-medium">{selectedApplication.job?.department || "N/A"}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Location</label>
-                    <p className="font-medium">{selectedApplication.jobs?.location || "N/A"}</p>
+                    <p className="font-medium">{selectedApplication.job?.location || "N/A"}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Applied On</label>
                     <p className="font-medium">
-                      {format(new Date(selectedApplication.applied_at), "MMMM d, yyyy 'at' h:mm a")}
+                      {format(new Date(selectedApplication.appliedAt), "MMMM d, yyyy 'at' h:mm a")}
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* Cover Letter */}
-              {selectedApplication.cover_letter && (
+              {selectedApplication.coverLetter && (
                 <div className="p-4 bg-secondary/50 rounded-lg">
                   <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                     <MessageSquare className="w-4 h-4" />
                     Cover Letter
                   </h3>
-                  <p className="text-sm whitespace-pre-wrap">{selectedApplication.cover_letter}</p>
+                  <p className="text-sm whitespace-pre-wrap">{selectedApplication.coverLetter}</p>
                 </div>
               )}
 
               {/* Resume */}
-              {selectedApplication.resume_url && (
+              {selectedApplication.resumeFileId && (
                 <div className="p-4 bg-secondary/50 rounded-lg">
                   <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                     <FileText className="w-4 h-4" />
@@ -746,7 +619,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   </h3>
                   <Button
                     variant="outline"
-                    onClick={() => openResumeUrl(selectedApplication.resume_url!)}
+                    onClick={() => openResumeUrl(selectedApplication.resumeFileId!)}
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Download Resume
@@ -755,7 +628,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
               )}
 
               {/* Schedule Interview Button */}
-              {(selectedApplication.status === "shortlisted" || selectedApplication.status === "reviewed") && (
+              {(selectedApplication.status === "SHORTLISTED" || selectedApplication.status === "REVIEWED") && (
                 <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
                   <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                     <Video className="w-4 h-4 text-primary" />
@@ -774,7 +647,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                 </div>
               )}
 
-              {selectedApplication.status === "interview_scheduled" && (
+              {selectedApplication.status === "INTERVIEW_SCHEDULED" && (
                 <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-200">
                   <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                     <Video className="w-4 h-4 text-purple-600" />
@@ -793,7 +666,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
                   value={selectedApplication.status}
                   onValueChange={(value) => {
                     updateApplicationStatus(selectedApplication.id, value);
-                    setSelectedApplication({ ...selectedApplication, status: value });
+                    setSelectedApplication({ ...selectedApplication, status: value as ApplicationWithDetails['status'] });
                   }}
                 >
                   <SelectTrigger className="w-full">
@@ -826,7 +699,7 @@ const ApplicationsTab = ({ user }: ApplicationsTabProps) => {
             </DialogTitle>
             <DialogDescription>
               Add candidate details to schedule an interview for{" "}
-              <strong>{applicationToSchedule?.jobs?.title || "this position"}</strong>
+              <strong>{applicationToSchedule?.job?.title || "this position"}</strong>
             </DialogDescription>
           </DialogHeader>
 

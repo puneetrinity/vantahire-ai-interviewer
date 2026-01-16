@@ -1,25 +1,26 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { jobs as jobsApi, applications as applicationsApi, users as usersApi, files as filesApi } from "@/lib/api";
+import type { Job as ApiJob } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 import MinimalFooter from "@/components/MinimalFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { 
-  Search, 
-  MapPin, 
-  Briefcase, 
-  Clock, 
+import {
+  Search,
+  MapPin,
+  Briefcase,
+  Clock,
   Building2,
   DollarSign,
   ChevronRight,
-  Filter,
   CheckCircle,
   Send,
   Loader2
@@ -56,132 +57,89 @@ interface Job {
 
 const Jobs = () => {
   const queryClient = useQueryClient();
+  const { user, isLoading: authLoading, candidateProfile, refreshCandidateProfile } = useAuth();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("all");
   const [jobTypeFilter, setJobTypeFilter] = useState<string>("all");
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [user, setUser] = useState<any>(null);
   const [coverLetter, setCoverLetter] = useState("");
   const [isApplying, setIsApplying] = useState(false);
   const [applicationForm, setApplicationForm] = useState({
     fullName: "",
     email: "",
     phone: "",
-    resumeUrl: "",
+    resumeFileId: "",
   });
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [uploadingResume, setUploadingResume] = useState(false);
 
-  // Check auth status and prefill form
+  // Prefill form when candidate profile is loaded
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      
-      // If user is logged in, prefill their details
-      if (user) {
-        // Get user's candidate profile
-        const { data: profile } = await supabase
-          .from('candidate_profiles')
-          .select('full_name, email, phone, resume_url')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        
-        if (profile) {
-          setApplicationForm({
-            fullName: profile.full_name || user.user_metadata?.full_name || "",
-            email: profile.email || user.email || "",
-            phone: profile.phone || "",
-            resumeUrl: profile.resume_url || "",
-          });
-        } else {
-          setApplicationForm({
-            fullName: user.user_metadata?.full_name || "",
-            email: user.email || "",
-            phone: "",
-            resumeUrl: "",
-          });
-        }
-      }
-    };
-    checkAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+    if (user && candidateProfile) {
+      setApplicationForm({
+        fullName: candidateProfile.fullName || user.fullName || "",
+        email: candidateProfile.email || user.email || "",
+        phone: candidateProfile.phone || "",
+        resumeFileId: candidateProfile.resumeFileId || "",
+      });
+    } else if (user) {
+      setApplicationForm({
+        fullName: user.fullName || "",
+        email: user.email || "",
+        phone: "",
+        resumeFileId: "",
+      });
+    }
+  }, [user, candidateProfile]);
 
   // Fetch user's applications
-  const { data: userApplications } = useQuery({
+  const { data: userApplicationsData } = useQuery({
     queryKey: ["user-applications", user?.id],
     queryFn: async () => {
-      if (!user) return [];
-      const { data, error } = await supabase
-        .from("job_applications")
-        .select("job_id, status")
-        .eq("candidate_id", user.id);
-      if (error) throw error;
-      return data || [];
+      const response = await applicationsApi.mine.list({ limit: 100 });
+      return response.data || [];
     },
     enabled: !!user,
   });
 
+  const userApplications = userApplicationsData?.map(app => ({
+    job_id: app.jobId,
+    status: app.status.toLowerCase(),
+  }));
+
+  // Fetch public jobs
   const { data: jobs, isLoading } = useQuery({
     queryKey: ["public-jobs"],
     queryFn: async () => {
-      // First fetch approved jobs
-      const { data: jobsData, error: jobsError } = await supabase
-        .from("jobs")
-        .select(`
-          id,
-          title,
-          description,
-          department,
-          location,
-          job_type,
-          salary_range,
-          created_at,
-          recruiter_id
-        `)
-        .eq("approval_status", "approved")
-        .eq("status", "active")
-        .order("created_at", { ascending: false });
+      const jobsData = await jobsApi.listPublic();
 
-      if (jobsError) throw jobsError;
-      if (!jobsData || jobsData.length === 0) return [];
-
-      // Get unique recruiter IDs
-      const recruiterIds = [...new Set(jobsData.map(j => j.recruiter_id))];
-      
-      // Fetch profiles for recruiters
-      const { data: profilesData, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id, company_name, logo_url")
-        .in("id", recruiterIds);
-
-      if (profilesError) throw profilesError;
-
-      // Create a map of recruiter profiles
-      const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
-
-      // Merge jobs with profile data
-      return jobsData.map(job => ({
-        ...job,
-        company_name: profilesMap.get(job.recruiter_id)?.company_name || null,
-        logo_url: profilesMap.get(job.recruiter_id)?.logo_url || null,
-      })) as Job[];
+      // Transform API jobs to local format
+      return jobsData.map((job: ApiJob): Job => ({
+        id: job.id,
+        title: job.title,
+        description: job.description,
+        department: job.department,
+        location: job.location,
+        job_type: job.jobType,
+        salary_range: job.salaryRange,
+        created_at: job.createdAt,
+        recruiter_id: job.recruiterId,
+        company_name: job.recruiter?.recruiterProfile?.companyName || null,
+        logo_url: job.recruiter?.recruiterProfile?.logoFileId
+          ? filesApi.getUrl(job.recruiter.recruiterProfile.logoFileId)
+          : null,
+      }));
     },
   });
 
   const filteredJobs = jobs?.filter((job) => {
-    const matchesSearch = 
+    const matchesSearch =
       job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.department?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.company_name?.toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     const matchesLocation = locationFilter === "all" || job.location === locationFilter;
     const matchesType = jobTypeFilter === "all" || job.job_type === jobTypeFilter;
 
@@ -196,7 +154,7 @@ const Jobs = () => {
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 1) return "Posted today";
     if (diffDays <= 7) return `Posted ${diffDays} days ago`;
     if (diffDays <= 30) return `Posted ${Math.ceil(diffDays / 7)} weeks ago`;
@@ -222,25 +180,16 @@ const Jobs = () => {
     return app?.status;
   };
 
-  const handleResumeUpload = async (file: File) => {
+  const handleResumeUpload = async (file: File): Promise<string | null> => {
     if (!user) return null;
-    
+
     setUploadingResume(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      
-      const { data, error } = await supabase.storage
-        .from('interview-documents')
-        .upload(fileName, file, { upsert: true });
-      
-      if (error) throw error;
-      
-      const { data: { publicUrl } } = supabase.storage
-        .from('interview-documents')
-        .getPublicUrl(fileName);
-      
-      return publicUrl;
+      const result = await filesApi.upload(file, {
+        category: 'RESUME',
+        purpose: 'application_resume',
+      });
+      return result.id;
     } catch (error) {
       console.error('Error uploading resume:', error);
       toast.error('Failed to upload resume');
@@ -270,97 +219,70 @@ const Jobs = () => {
       toast.error("Please enter your phone number");
       return;
     }
-    if (!resumeFile && !applicationForm.resumeUrl) {
+    if (!resumeFile && !applicationForm.resumeFileId) {
       toast.error("Please upload your resume");
       return;
     }
 
     setIsApplying(true);
     try {
-      let resumeUrl = applicationForm.resumeUrl;
-      
+      let resumeFileId = applicationForm.resumeFileId;
+
       // Upload resume if a new file was selected
       if (resumeFile) {
-        const uploadedUrl = await handleResumeUpload(resumeFile);
-        if (uploadedUrl) {
-          resumeUrl = uploadedUrl;
+        const uploadedFileId = await handleResumeUpload(resumeFile);
+        if (uploadedFileId) {
+          resumeFileId = uploadedFileId;
         }
       }
 
-      const { error } = await supabase
-        .from("job_applications")
-        .insert({
-          job_id: job.id,
-          candidate_id: user.id,
-          cover_letter: coverLetter || null,
-          resume_url: resumeUrl || null,
-          status: "pending",
+      // Create the application
+      await applicationsApi.mine.apply({
+        jobId: job.id,
+        coverLetter: coverLetter || undefined,
+        resumeFileId: resumeFileId || undefined,
+      });
+
+      // Update candidate profile with latest info
+      try {
+        await usersApi.updateCandidateProfile({
+          fullName: applicationForm.fullName,
+          email: applicationForm.email,
+          phone: applicationForm.phone || null,
+          resumeFileId: resumeFileId || null,
         });
-
-      if (error) {
-        if (error.code === '23505') {
-          toast.error("You have already applied to this job");
-        } else {
-          throw error;
-        }
-      } else {
-        // Update candidate profile with latest info
-        await supabase
-          .from('candidate_profiles')
-          .upsert({
-            user_id: user.id,
-            full_name: applicationForm.fullName,
-            email: applicationForm.email,
-            phone: applicationForm.phone || null,
-            resume_url: resumeUrl || null,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'user_id' });
-
-        // Notify recruiter about the new application
-        try {
-          await supabase.functions.invoke('send-application-notification', {
-            body: {
-              jobId: job.id,
-              jobTitle: job.title,
-              recruiterId: job.recruiter_id,
-              candidateName: applicationForm.fullName,
-              candidateEmail: applicationForm.email,
-              candidatePhone: applicationForm.phone,
-              hasResume: !!resumeUrl,
-              hasCoverLetter: !!coverLetter,
-            },
-          });
-          console.log('Recruiter notification sent successfully');
-        } catch (notifyError) {
-          console.error('Failed to notify recruiter:', notifyError);
-          // Don't fail the application if notification fails
-        }
-
-        toast.success("Application submitted successfully!");
-        queryClient.invalidateQueries({ queryKey: ["user-applications"] });
-        setCoverLetter("");
-        setResumeFile(null);
-        setSelectedJob(null);
+        // Refresh the profile in auth context
+        refreshCandidateProfile();
+      } catch (profileError) {
+        console.error('Failed to update profile:', profileError);
+        // Don't fail the application if profile update fails
       }
+
+      toast.success("Application submitted successfully!");
+      queryClient.invalidateQueries({ queryKey: ["user-applications"] });
+      setCoverLetter("");
+      setResumeFile(null);
+      setSelectedJob(null);
     } catch (error: any) {
       console.error("Error applying:", error);
-      toast.error("Failed to submit application");
+      if (error.message?.includes('already applied') || error.status === 409) {
+        toast.error("You have already applied to this job");
+      } else {
+        toast.error("Failed to submit application");
+      }
     } finally {
       setIsApplying(false);
     }
   };
 
   const getStatusLabel = (status: string) => {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case "pending": return "Application Pending";
-      case "reviewing": return "Under Review";
-      case "interview_scheduled": return "Interview Scheduled";
-      case "interviewed": return "Interviewed";
-      case "offered": return "Offer Made";
-      case "hired": return "Hired";
+      case "reviewed": return "Under Review";
+      case "shortlisted": return "Shortlisted";
       case "rejected": return "Not Selected";
-      case "withdrawn": return "Withdrawn";
-      default: return status;
+      case "hired": return "Hired";
+      default: return status || "Pending";
     }
   };
 
@@ -380,8 +302,8 @@ const Jobs = () => {
               </p>
             </div>
           </div>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="w-full mt-3"
             onClick={() => setSelectedJob(null)}
           >
@@ -434,7 +356,7 @@ const Jobs = () => {
             />
           </div>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number <span className="text-destructive">*</span></Label>
@@ -455,9 +377,9 @@ const Jobs = () => {
               accept=".pdf,.doc,.docx"
               onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
               className="cursor-pointer"
-              required={!applicationForm.resumeUrl}
+              required={!applicationForm.resumeFileId}
             />
-            {applicationForm.resumeUrl && !resumeFile && (
+            {applicationForm.resumeFileId && !resumeFile && (
               <p className="text-xs text-green-500">
                 ✓ Resume already on file. Upload a new one to replace it.
               </p>
@@ -475,9 +397,9 @@ const Jobs = () => {
             rows={4}
           />
         </div>
-        
+
         <div className="flex gap-3">
-          <Button 
+          <Button
             className="flex-1"
             onClick={() => handleApply(job)}
             disabled={isApplying || uploadingResume}
@@ -505,7 +427,7 @@ const Jobs = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       {/* Hero Section */}
       <section className="pt-24 pb-12 px-4 bg-gradient-to-b from-primary/5 to-background">
         <div className="container mx-auto max-w-6xl">
@@ -519,7 +441,7 @@ const Jobs = () => {
               Find Your Dream Job
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Discover exciting opportunities at top companies. Apply with AI-powered interviews 
+              Discover exciting opportunities at top companies. Apply with AI-powered interviews
               and get hired faster.
             </p>
           </motion.div>
@@ -597,7 +519,7 @@ const Jobs = () => {
                   Showing <span className="font-semibold text-foreground">{filteredJobs.length}</span> jobs
                 </p>
               </div>
-              
+
               <div className="space-y-4">
                 {filteredJobs.map((job, index) => (
                   <motion.div
@@ -606,7 +528,7 @@ const Jobs = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: index * 0.05 }}
                   >
-                    <Card 
+                    <Card
                       className="group hover:shadow-lg hover:border-primary/30 transition-all duration-300 cursor-pointer"
                       onClick={() => setSelectedJob(job)}
                     >
@@ -615,9 +537,9 @@ const Jobs = () => {
                           {/* Company Logo */}
                           <div className="flex-shrink-0">
                             {job.logo_url ? (
-                              <img 
-                                src={job.logo_url} 
-                                alt={job.company_name || "Company"} 
+                              <img
+                                src={job.logo_url}
+                                alt={job.company_name || "Company"}
                                 className="h-16 w-16 rounded-lg object-cover"
                               />
                             ) : (
@@ -638,8 +560,8 @@ const Jobs = () => {
                                   {job.company_name || "Company"}
                                 </p>
                               </div>
-                              <Button 
-                                variant="ghost" 
+                              <Button
+                                variant="ghost"
                                 size="sm"
                                 className="hidden md:flex items-center gap-1 group-hover:bg-primary group-hover:text-primary-foreground transition-colors"
                               >
@@ -711,8 +633,8 @@ const Jobs = () => {
                   : "There are no job openings at the moment. Check back later!"}
               </p>
               {(searchQuery || locationFilter !== "all" || jobTypeFilter !== "all") && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="mt-4"
                   onClick={() => {
                     setSearchQuery("");
@@ -736,9 +658,9 @@ const Jobs = () => {
               <DialogHeader>
                 <div className="flex items-start gap-4">
                   {selectedJob.logo_url ? (
-                    <img 
-                      src={selectedJob.logo_url} 
-                      alt={selectedJob.company_name || "Company"} 
+                    <img
+                      src={selectedJob.logo_url}
+                      alt={selectedJob.company_name || "Company"}
                       className="h-16 w-16 rounded-lg object-cover"
                     />
                   ) : (

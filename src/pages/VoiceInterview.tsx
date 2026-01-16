@@ -2,13 +2,13 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useConversation } from "@elevenlabs/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { interviews as interviewsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { useCandidateAuth } from "@/hooks/useCandidateAuth";
+import { useInterviewSession } from "@/hooks/useInterviewSession";
 import { validateMessageContent, validateNotes } from "@/lib/validateInput";
 import AppLayout from "@/components/AppLayout";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
@@ -68,8 +68,8 @@ const VoiceInterview = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
-  // Use anonymous auth for candidates
-  const { user, isLoading: authLoading, isLinkedToInterview, error: authError } = useCandidateAuth(id);
+  // Use token-based auth for candidates
+  const { interview: authInterview, isLoading: authLoading, isAuthenticated, error: authError } = useInterviewSession(id);
   
   const [interview, setInterview] = useState<Interview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,21 +210,14 @@ const VoiceInterview = () => {
       setTranscript(prev => [...prev, { role, text: validation.sanitized! }]);
       
       // Track the promise so we can wait for all messages to be saved
-      // Use RPC function to bypass RLS issues with anonymous users
-      const savePromise = new Promise<void>((resolve) => {
-        supabase.rpc('insert_interview_message', {
-          p_interview_id: id,
-          p_role: role,
-          p_content: validation.sanitized!,
-        }).then(({ error }) => {
-          if (error) {
-            console.error("Failed to save message:", error);
-          } else {
-            console.log("Message saved successfully:", role);
-          }
-          resolve();
-        });
-      });
+      const savePromise = (async () => {
+        try {
+          await interviewsApi.candidate.saveMessage(role as 'user' | 'assistant', validation.sanitized!);
+          console.log("Message saved successfully:", role);
+        } catch (error) {
+          console.error("Failed to save message:", error);
+        }
+      })();
       pendingMessagesRef.current.push(savePromise);
     },
     onError: (error: any) => {
@@ -290,26 +283,44 @@ const VoiceInterview = () => {
     }
   }, [reconnectAttempts, conversation, buildInterviewContext, toast]);
 
-  // Wait for auth before fetching interview
+  // Wait for auth before initializing interview
   useEffect(() => {
     if (authLoading) return;
-    
+
     if (authError) {
       setError(authError);
       setLoading(false);
       return;
     }
-    
-    if (!isLinkedToInterview) {
+
+    if (!isAuthenticated) {
       setError("Unable to access this interview. Please check the link and try again.");
       setLoading(false);
       return;
     }
-    
-    if (id && user) {
-      fetchInterview();
+
+    if (id && authInterview) {
+      // Convert from API format to local Interview format
+      const interviewData: Interview = {
+        id: authInterview.id,
+        job_role: authInterview.jobRole,
+        status: authInterview.status.toLowerCase(),
+        score: null,
+        time_limit_minutes: authInterview.timeLimitMinutes,
+        started_at: authInterview.startedAt,
+        completed_at: null,
+        expires_at: null,
+        candidate_resume_url: null,
+        candidate_notes: null,
+        candidate_name: null,
+      };
+      setInterview(interviewData);
+      if (interviewData.status === "in_progress" || interviewData.status === "completed") {
+        setShowPreInterview(false);
+      }
+      setLoading(false);
     }
-    
+
     return () => {
       stopVideo();
       conversation.endSession();
@@ -320,7 +331,7 @@ const VoiceInterview = () => {
         clearInterval(screenshotIntervalRef.current);
       }
     };
-  }, [id, authLoading, authError, isLinkedToInterview, user]);
+  }, [id, authLoading, authError, isAuthenticated, authInterview]);
 
   // Timer effect
   useEffect(() => {
@@ -356,34 +367,6 @@ const VoiceInterview = () => {
 
   // Note: No auto-redirect after interview completion
   // Candidates should stay on the completion screen since they don't have access to the recruiter dashboard
-
-  const fetchInterview = async () => {
-    try {
-      // Use secure function that only returns safe columns for candidates
-      const { data, error } = await supabase
-        .rpc("get_candidate_interview_safe", { p_interview_id: id });
-
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        setError("Interview not found");
-        return;
-      }
-
-      const interviewData = data[0] as Interview;
-      setInterview(interviewData);
-      if (interviewData.candidate_notes) {
-        setCandidateNotes(interviewData.candidate_notes);
-      }
-      if (interviewData.status === "in_progress" || interviewData.status === "completed") {
-        setShowPreInterview(false);
-      }
-    } catch (error: any) {
-      console.error("Error fetching interview:", error);
-      setError("Failed to load interview");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Device test functions
   const startDeviceTest = async () => {
@@ -678,22 +661,17 @@ const VoiceInterview = () => {
       
       screenshotCountRef.current += 1;
       const screenshotNumber = screenshotCountRef.current;
-      const fileName = `${id}/screenshot-${screenshotNumber}-${Date.now()}.jpg`;
-      
+      const fileName = `screenshot-${screenshotNumber}-${Date.now()}.jpg`;
+
       console.log(`Capturing screenshot ${screenshotNumber}...`);
-      
-      const { error: uploadError } = await supabase.storage
-        .from('interview-documents')
-        .upload(fileName, blob, {
-          contentType: 'image/jpeg',
-        });
-      
-      if (uploadError) {
+
+      try {
+        await interviewsApi.candidate.uploadFile(id!, blob, 'screenshot', fileName);
+        console.log(`Screenshot ${screenshotNumber} uploaded: ${fileName}`);
+      } catch (uploadError) {
         console.error("Failed to upload screenshot:", uploadError);
         return;
       }
-      
-      console.log(`Screenshot ${screenshotNumber} uploaded: ${fileName}`);
     } catch (error) {
       console.error("Error capturing screenshot:", error);
     }
@@ -754,44 +732,32 @@ const VoiceInterview = () => {
             return;
           }
 
-          // Upload to Supabase storage
-          const fileName = `${id}/recording-${Date.now()}.webm`;
-          const { error: uploadError } = await supabase.storage
-            .from('interview-documents')
-            .upload(fileName, blob, {
-              contentType: 'video/webm',
+          try {
+            // Get upload URL from API
+            const { uploadUrl, gcsKey } = await interviewsApi.candidate.getUploadUrl(id!, 'video/webm');
+
+            // Upload directly to GCS
+            const uploadResponse = await fetch(uploadUrl, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'video/webm',
+              },
+              body: blob,
             });
 
-          if (uploadError) {
+            if (!uploadResponse.ok) {
+              throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+            }
+
+            // Notify backend that recording is complete
+            await interviewsApi.candidate.saveRecording(id!, gcsKey);
+            console.log("Recording uploaded and saved:", gcsKey);
+
+            resolve(gcsKey);
+          } catch (uploadError) {
             console.error("Failed to upload recording:", uploadError);
             resolve(null);
-            return;
           }
-
-          // Get signed URL instead of public URL (bucket is now private)
-          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-            .from('interview-documents')
-            .createSignedUrl(fileName, 60 * 60 * 24 * 7); // 7 days expiration
-
-          if (signedUrlError || !signedUrlData) {
-            console.error("Failed to get signed URL:", signedUrlError);
-            resolve(null);
-            return;
-          }
-
-          // Update interview with recording URL using secure RPC function
-          const { error: updateError } = await supabase.rpc('update_interview_recording', {
-            p_interview_id: id,
-            p_recording_url: fileName
-          });
-
-          if (updateError) {
-            console.error("Failed to update recording URL:", updateError);
-          } else {
-            console.log("Recording uploaded and saved:", fileName);
-          }
-          
-          resolve(fileName);
         } catch (error) {
           console.error("Error processing recording:", error);
           resolve(null);
@@ -875,20 +841,7 @@ const VoiceInterview = () => {
     setIsUploading(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${id}/${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('interview-documents')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Store the file path instead of public URL
-      await supabase
-        .from('interviews')
-        .update({ candidate_resume_url: filePath })
-        .eq('id', id);
+      await interviewsApi.candidate.uploadResume(id!, file);
 
       toast({
         title: "File Uploaded",
@@ -922,10 +875,7 @@ const VoiceInterview = () => {
     if (!validation.sanitized?.trim()) return;
 
     try {
-      await supabase
-        .from('interviews')
-        .update({ candidate_notes: validation.sanitized })
-        .eq('id', id);
+      await interviewsApi.candidate.updateNotes(validation.sanitized);
 
       toast({
         title: "Notes Saved",
@@ -958,21 +908,13 @@ const VoiceInterview = () => {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       await startVideo();
 
-      // Use RPC function to update status (handles started_at automatically)
-      const { error: statusError } = await supabase.rpc('update_interview_status', {
-        p_interview_id: id,
-        p_status: 'in_progress'
-      });
+      // Start interview via API
+      const { status, startedAt } = await interviewsApi.candidate.start();
 
-      if (statusError) {
-        console.error("Failed to update interview status:", statusError);
-        throw new Error("Could not start interview. Please try again.");
-      }
-
-      setInterview(prev => prev ? { 
-        ...prev, 
-        status: "in_progress",
-        started_at: new Date().toISOString()
+      setInterview(prev => prev ? {
+        ...prev,
+        status: status.toLowerCase(),
+        started_at: startedAt
       } : null);
 
       await conversation.startSession({
@@ -1051,13 +993,9 @@ const VoiceInterview = () => {
     try {
       // Add message to transcript immediately
       setTranscript(prev => [...prev, { role: "user", text: messageText }]);
-      
-      // Save to database using RPC function to bypass RLS issues
-      await supabase.rpc('insert_interview_message', {
-        p_interview_id: id,
-        p_role: "user",
-        p_content: messageText,
-      });
+
+      // Save to database
+      await interviewsApi.candidate.saveMessage("user", messageText);
 
       // Send to ElevenLabs agent
       conversation.sendUserMessage(messageText);
@@ -1117,26 +1055,16 @@ const VoiceInterview = () => {
     setIsUploading(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${id}/chat-${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('interview-documents')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
+      const fileName = `chat-${Date.now()}-${file.name}`;
+      await interviewsApi.candidate.uploadFile(id!, file, 'document', fileName);
 
       setChatUploadedFile(file.name);
 
       // Send a message to the AI about the uploaded file
       const uploadMessage = `[Shared document: ${file.name}]`;
       setTranscript(prev => [...prev, { role: "user", text: uploadMessage }]);
-      
-      await supabase.from("interview_messages").insert({
-        interview_id: id,
-        role: "user",
-        content: uploadMessage,
-      });
+
+      await interviewsApi.candidate.saveMessage("user", uploadMessage);
 
       // Notify the AI agent about the document
       if (conversation.status === "connected") {
@@ -1192,54 +1120,24 @@ const VoiceInterview = () => {
 
     stopVideo();
 
-    // Always update the interview status to completed first using security definer function
+    // Complete the interview via API
     try {
-      const { error: updateError } = await supabase.rpc('update_interview_status', {
-        p_interview_id: id,
-        p_status: 'completed'
-      });
-      
-      if (updateError) {
-        console.error('Failed to update interview status:', updateError);
-        // Fallback: try direct update (will work if RLS allows it)
-        await supabase
-          .from("interviews")
-          .update({ 
-            status: "completed",
-            completed_at: new Date().toISOString()
-          })
-          .eq("id", id);
-      } else {
-        console.log('Interview status updated to completed');
-      }
+      await interviewsApi.candidate.complete();
+      console.log('Interview status updated to completed');
     } catch (error) {
       console.error('Error updating interview status:', error);
     }
 
-    // Then try to generate AI summary with proper authorization
+    // Try to generate AI summary
     try {
-      // Get current session for authorization
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const { data, error } = await supabase.functions.invoke('generate-interview-summary', {
-        body: { interviewId: id },
-        headers: session ? {
-          Authorization: `Bearer ${session.access_token}`
-        } : undefined
-      });
-
-      if (error) {
-        toast({
-          variant: "destructive",
-          title: "Summary Generation Failed",
-          description: "The interview was saved but we couldn't generate the AI summary. The recruiter will still see your responses.",
-        });
-      }
+      await interviewsApi.regenerateSummary(id!);
+      console.log('AI summary generated');
     } catch (error) {
+      console.error('Summary generation failed:', error);
       toast({
         variant: "destructive",
         title: "Summary Generation Failed",
-        description: "The interview was saved but we couldn't generate the AI summary.",
+        description: "The interview was saved but we couldn't generate the AI summary. The recruiter will still see your responses.",
       });
     } finally {
       setIsGeneratingSummary(false);

@@ -1,18 +1,18 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { interviews as interviewsApi, applications as applicationsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { 
-  User, 
-  FileText, 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  User,
+  FileText,
+  CheckCircle,
+  AlertCircle,
   LogOut,
   ExternalLink,
   Calendar,
@@ -26,162 +26,60 @@ import {
 import { format } from "date-fns";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 
-interface Interview {
-  id: string;
-  job_role: string;
-  status: string;
-  score: number | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  expires_at: string | null;
-}
-
-interface CandidateProfile {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-  phone: string | null;
-  resume_url: string | null;
-  linkedin_url: string | null;
-  portfolio_url: string | null;
-  bio: string | null;
-  skills: string[] | null;
-  experience_years: number | null;
-}
-
-interface JobApplication {
-  id: string;
-  job_id: string;
-  status: string;
-  cover_letter: string | null;
-  applied_at: string;
-  updated_at: string;
-  job_title?: string;
-  company_name?: string;
-  location?: string;
-}
-
 const CandidateDashboard = () => {
   const navigate = useNavigate();
-  const { user, role, isLoading: roleLoading } = useUserRole();
-  const [interviews, setInterviews] = useState<Interview[]>([]);
-  const [applications, setApplications] = useState<JobApplication[]>([]);
-  const [profile, setProfile] = useState<CandidateProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user, isLoading: authLoading, isCandidate, candidateProfile, logout } = useAuth();
 
   useEffect(() => {
-    if (!roleLoading && !user) {
+    if (!authLoading && !user) {
       navigate("/candidate/auth");
       return;
     }
-    
-    if (!roleLoading && role && role !== 'candidate') {
+
+    if (!authLoading && user && !isCandidate) {
       toast.error("Access denied. This page is for candidates only.");
       navigate("/dashboard");
       return;
     }
+  }, [user, authLoading, isCandidate, navigate]);
 
-    if (user && role === 'candidate') {
-      fetchData();
-    }
-  }, [user, role, roleLoading, navigate]);
+  // Fetch interviews for logged-in candidate
+  const { data: interviewsData, isLoading: interviewsLoading } = useQuery({
+    queryKey: ["candidate-interviews"],
+    queryFn: async () => {
+      const response = await interviewsApi.listMine({ limit: 100 });
+      return response.data || [];
+    },
+    enabled: !!user && isCandidate,
+  });
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      // Fetch candidate profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('candidate_profiles')
-        .select('*')
-        .eq('user_id', user!.id)
-        .maybeSingle();
+  // Fetch job applications for logged-in candidate
+  const { data: applicationsData, isLoading: applicationsLoading } = useQuery({
+    queryKey: ["candidate-applications"],
+    queryFn: async () => {
+      const response = await applicationsApi.mine.list({ limit: 100 });
+      return response.data || [];
+    },
+    enabled: !!user && isCandidate,
+  });
 
-      if (profileError) {
-        console.error('Error fetching profile:', profileError);
-      } else {
-        setProfile(profileData);
-      }
-
-      // Fetch interviews linked to this candidate
-      const { data: interviewData, error: interviewError } = await supabase
-        .from('interviews')
-        .select('id, job_role, status, score, created_at, started_at, completed_at, expires_at')
-        .order('created_at', { ascending: false });
-
-      if (interviewError) {
-        console.error('Error fetching interviews:', interviewError);
-      } else {
-        setInterviews(interviewData || []);
-      }
-
-      // Fetch job applications
-      const { data: applicationsData, error: applicationsError } = await supabase
-        .from('job_applications')
-        .select('id, job_id, status, cover_letter, applied_at, updated_at')
-        .eq('candidate_id', user!.id)
-        .order('applied_at', { ascending: false });
-
-      if (applicationsError) {
-        console.error('Error fetching applications:', applicationsError);
-      } else if (applicationsData && applicationsData.length > 0) {
-        // Fetch job details for applications
-        const jobIds = applicationsData.map(app => app.job_id);
-        const { data: jobsData, error: jobsError } = await supabase
-          .from('jobs')
-          .select('id, title, location, recruiter_id')
-          .in('id', jobIds);
-
-        if (jobsError) {
-          console.error('Error fetching job details:', jobsError);
-          setApplications(applicationsData);
-        } else {
-          // Get recruiter profiles for company names
-          const recruiterIds = [...new Set(jobsData?.map(j => j.recruiter_id) || [])];
-          const { data: profilesData } = await supabase
-            .from('profiles')
-            .select('id, company_name')
-            .in('id', recruiterIds);
-
-          const profilesMap = new Map(profilesData?.map(p => [p.id, p.company_name]) || []);
-          const jobsMap = new Map(jobsData?.map(j => [j.id, { 
-            title: j.title, 
-            location: j.location,
-            company_name: profilesMap.get(j.recruiter_id)
-          }]) || []);
-
-          setApplications(applicationsData.map(app => ({
-            ...app,
-            job_title: jobsMap.get(app.job_id)?.title,
-            company_name: jobsMap.get(app.job_id)?.company_name,
-            location: jobsMap.get(app.job_id)?.location,
-          })));
-        }
-      } else {
-        setApplications([]);
-      }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      toast.error("Failed to load data");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const interviews = interviewsData || [];
+  const applications = applicationsData || [];
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/");
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
+    switch (status?.toUpperCase()) {
+      case 'COMPLETED':
         return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>;
-      case 'in_progress':
+      case 'IN_PROGRESS':
         return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">In Progress</Badge>;
-      case 'pending':
+      case 'PENDING':
         return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Pending</Badge>;
-      case 'expired':
+      case 'EXPIRED':
         return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Expired</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
@@ -189,23 +87,17 @@ const CandidateDashboard = () => {
   };
 
   const getApplicationStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
+    switch (status?.toUpperCase()) {
+      case 'PENDING':
         return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Pending</Badge>;
-      case 'reviewing':
+      case 'REVIEWED':
         return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Under Review</Badge>;
-      case 'interview_scheduled':
-        return <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">Interview Scheduled</Badge>;
-      case 'interviewed':
-        return <Badge className="bg-indigo-500/20 text-indigo-400 border-indigo-500/30">Interviewed</Badge>;
-      case 'offered':
-        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Offer Made</Badge>;
-      case 'hired':
-        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Hired!</Badge>;
-      case 'rejected':
+      case 'SHORTLISTED':
+        return <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">Shortlisted</Badge>;
+      case 'REJECTED':
         return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Not Selected</Badge>;
-      case 'withdrawn':
-        return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Withdrawn</Badge>;
+      case 'HIRED':
+        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Hired!</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -217,14 +109,19 @@ const CandidateDashboard = () => {
     return 'text-red-400';
   };
 
-  if (roleLoading || isLoading) {
+  if (authLoading || interviewsLoading || applicationsLoading) {
     return <PageLoadingSkeleton />;
   }
 
-  const pendingInterviews = interviews.filter(i => i.status === 'pending');
-  const completedInterviews = interviews.filter(i => i.status === 'completed');
-  const inProgressInterviews = interviews.filter(i => i.status === 'in_progress');
-  const pendingApplications = applications.filter(a => a.status === 'pending' || a.status === 'reviewing');
+  if (!user || !isCandidate) {
+    return null;
+  }
+
+  const pendingInterviews = interviews.filter(i => i.status === 'PENDING');
+  const completedInterviews = interviews.filter(i => i.status === 'COMPLETED');
+  const pendingApplications = applications.filter(a =>
+    a.status === 'PENDING' || a.status === 'REVIEWED'
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -235,7 +132,9 @@ const CandidateDashboard = () => {
             <User className="h-6 w-6 text-primary" />
             <div>
               <h1 className="font-semibold">Candidate Portal</h1>
-              <p className="text-sm text-muted-foreground">{profile?.email || user?.email}</p>
+              <p className="text-sm text-muted-foreground">
+                {candidateProfile?.email || user?.email}
+              </p>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={handleSignOut}>
@@ -302,8 +201,8 @@ const CandidateDashboard = () => {
                 <Award className="h-8 w-8 text-purple-400" />
                 <div>
                   <p className="text-2xl font-bold">
-                    {completedInterviews.length > 0 
-                      ? Math.round(completedInterviews.reduce((acc, i) => acc + (i.score || 0), 0) / completedInterviews.length)
+                    {completedInterviews.length > 0
+                      ? Math.round(completedInterviews.reduce((acc, i) => acc + ((i.score || 0) * 100), 0) / completedInterviews.length)
                       : 0}%
                   </p>
                   <p className="text-sm text-muted-foreground">Avg Score</p>
@@ -363,21 +262,21 @@ const CandidateDashboard = () => {
                               <Building2 className="h-6 w-6 text-primary" />
                             </div>
                             <div>
-                              <h3 className="font-medium">{application.job_title || 'Job Position'}</h3>
+                              <h3 className="font-medium">{application.job?.title || 'Job Position'}</h3>
                               <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                                {application.company_name && (
-                                  <span>{application.company_name}</span>
+                                {application.job?.recruiter?.recruiterProfile?.companyName && (
+                                  <span>{application.job.recruiter.recruiterProfile.companyName}</span>
                                 )}
-                                {application.location && (
+                                {application.job?.location && (
                                   <span className="flex items-center gap-1">
                                     <MapPin className="h-3 w-3" />
-                                    {application.location}
+                                    {application.job.location}
                                   </span>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                                 <Calendar className="h-3 w-3" />
-                                Applied {format(new Date(application.applied_at), 'MMM d, yyyy')}
+                                Applied {format(new Date(application.appliedAt), 'MMM d, yyyy')}
                               </div>
                             </div>
                           </div>
@@ -416,10 +315,10 @@ const CandidateDashboard = () => {
                             <FileText className="h-6 w-6 text-primary" />
                           </div>
                           <div>
-                            <h3 className="font-medium">{interview.job_role}</h3>
+                            <h3 className="font-medium">{interview.jobRole}</h3>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Calendar className="h-3 w-3" />
-                              {format(new Date(interview.created_at), 'MMM d, yyyy')}
+                              {format(new Date(interview.createdAt), 'MMM d, yyyy')}
                             </div>
                           </div>
                         </div>
@@ -434,8 +333,8 @@ const CandidateDashboard = () => {
                             </div>
                           )}
                           {getStatusBadge(interview.status)}
-                          {interview.status === 'pending' && (
-                            <Button 
+                          {interview.status === 'PENDING' && (
+                            <Button
                               size="sm"
                               onClick={() => navigate(`/interview/${interview.id}`)}
                             >
@@ -462,39 +361,39 @@ const CandidateDashboard = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Full Name</label>
-                    <p className="text-foreground">{profile?.full_name || 'Not set'}</p>
+                    <p className="text-foreground">{candidateProfile?.fullName || user?.fullName || 'Not set'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Email</label>
-                    <p className="text-foreground">{profile?.email || user?.email}</p>
+                    <p className="text-foreground">{candidateProfile?.email || user?.email}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Phone</label>
-                    <p className="text-foreground">{profile?.phone || 'Not set'}</p>
+                    <p className="text-foreground">{candidateProfile?.phone || 'Not set'}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Experience</label>
                     <p className="text-foreground">
-                      {profile?.experience_years ? `${profile.experience_years} years` : 'Not set'}
+                      {candidateProfile?.experienceYears ? `${candidateProfile.experienceYears} years` : 'Not set'}
                     </p>
                   </div>
                 </div>
-                
-                {profile?.skills && profile.skills.length > 0 && (
+
+                {candidateProfile?.skills && candidateProfile.skills.length > 0 && (
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Skills</label>
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {profile.skills.map((skill, index) => (
+                      {candidateProfile.skills.map((skill, index) => (
                         <Badge key={index} variant="secondary">{skill}</Badge>
                       ))}
                     </div>
                   </div>
                 )}
-                
-                {profile?.bio && (
+
+                {candidateProfile?.bio && (
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Bio</label>
-                    <p className="text-foreground">{profile.bio}</p>
+                    <p className="text-foreground">{candidateProfile.bio}</p>
                   </div>
                 )}
               </CardContent>

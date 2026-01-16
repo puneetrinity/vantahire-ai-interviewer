@@ -1,19 +1,19 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { admin as adminApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  Users, 
-  Briefcase, 
-  BarChart3, 
-  Shield, 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Users,
+  Briefcase,
+  BarChart3,
+  Shield,
   LogOut,
   UserCheck,
-  UserX,
   FileText,
   LayoutDashboard
 } from "lucide-react";
@@ -26,86 +26,34 @@ import { AdminInterviewsTab } from "@/components/admin/AdminInterviewsTab";
 import { AdminOverviewTab } from "@/components/admin/AdminOverviewTab";
 
 const AdminDashboard = () => {
-  const { user, isAdmin, isLoading } = useAdminAuth();
+  const { user, isLoading: authLoading, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState({
-    totalRecruiters: 0,
-    totalCandidates: 0,
-    totalJobs: 0,
-    pendingJobs: 0,
-    totalInterviews: 0,
-    completedInterviews: 0
-  });
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!authLoading && !user) {
       navigate("/auth");
-    } else if (!isLoading && user && !isAdmin) {
+    } else if (!authLoading && user && !isAdmin) {
       navigate("/dashboard");
     }
-  }, [user, isAdmin, isLoading, navigate]);
+  }, [user, isAdmin, authLoading, navigate]);
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetchStats();
-    }
-  }, [isAdmin]);
-
-  const fetchStats = async () => {
-    try {
-      // Fetch recruiters count
-      const { count: recruitersCount } = await supabase
-        .from('user_roles')
-        .select('*', { count: 'exact', head: true })
-        .eq('role', 'recruiter');
-
-      // Fetch candidates count
-      const { count: candidatesCount } = await supabase
-        .from('user_roles')
-        .select('*', { count: 'exact', head: true })
-        .eq('role', 'candidate');
-
-      // Fetch jobs counts
-      const { count: totalJobsCount } = await supabase
-        .from('jobs')
-        .select('*', { count: 'exact', head: true });
-
-      // Pending jobs - will work once migration is applied
-      const pendingJobsCount = 0;
-
-      // Fetch interviews counts
-      const { count: totalInterviewsCount } = await supabase
-        .from('interviews')
-        .select('*', { count: 'exact', head: true });
-
-      const { count: completedInterviewsCount } = await supabase
-        .from('interviews')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'completed');
-
-      setStats({
-        totalRecruiters: recruitersCount || 0,
-        totalCandidates: candidatesCount || 0,
-        totalJobs: totalJobsCount || 0,
-        pendingJobs: pendingJobsCount || 0,
-        totalInterviews: totalInterviewsCount || 0,
-        completedInterviews: completedInterviewsCount || 0
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  };
+  // Fetch admin stats
+  const { data: stats, refetch: refetchStats } = useQuery({
+    queryKey: ["admin-stats"],
+    queryFn: () => adminApi.getStats(),
+    enabled: !!user && isAdmin,
+  });
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/auth");
   };
 
-  if (isLoading) {
+  if (authLoading) {
     return <PageLoadingSkeleton />;
   }
 
-  if (!isAdmin) {
+  if (!user || !isAdmin) {
     return null;
   }
 
@@ -151,7 +99,7 @@ const AdminDashboard = () => {
                 <UserCheck className="w-4 h-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats.totalRecruiters}</div>
+                <div className="text-2xl font-bold">{stats?.totalRecruiters || 0}</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -169,7 +117,7 @@ const AdminDashboard = () => {
                 <Users className="w-4 h-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats.totalCandidates}</div>
+                <div className="text-2xl font-bold">{stats?.totalCandidates || 0}</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -188,7 +136,7 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.totalJobs} <span className="text-sm text-amber-500">({stats.pendingJobs} pending)</span>
+                  {stats?.totalJobs || 0} <span className="text-sm text-amber-500">({stats?.pendingJobs || 0} pending)</span>
                 </div>
               </CardContent>
             </Card>
@@ -208,7 +156,7 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.totalInterviews} <span className="text-sm text-green-500">({stats.completedInterviews} completed)</span>
+                  {stats?.totalInterviews || 0} <span className="text-sm text-green-500">({stats?.completedInterviews || 0} completed)</span>
                 </div>
               </CardContent>
             </Card>
@@ -249,15 +197,15 @@ const AdminDashboard = () => {
           </TabsContent>
 
           <TabsContent value="users">
-            <AdminUsersTab onRefresh={fetchStats} />
+            <AdminUsersTab onRefresh={() => refetchStats()} />
           </TabsContent>
 
           <TabsContent value="jobs">
-            <AdminJobsTab onRefresh={fetchStats} />
+            <AdminJobsTab onRefresh={() => refetchStats()} />
           </TabsContent>
 
           <TabsContent value="interviews">
-            <AdminInterviewsTab onRefresh={fetchStats} />
+            <AdminInterviewsTab onRefresh={() => refetchStats()} />
           </TabsContent>
 
           <TabsContent value="analytics">

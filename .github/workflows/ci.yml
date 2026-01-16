@@ -1,0 +1,270 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Unit & Integration Tests (mocked)
+  # ─────────────────────────────────────────────────────────────
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+  # ─────────────────────────────────────────────────────────────
+  # DB Integration Tests (real Postgres + Redis)
+  # ─────────────────────────────────────────────────────────────
+  test-db:
+    name: DB Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vantahire_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/vantahire_test
+      REDIS_URL: redis://localhost:6379
+      SESSION_SECRET: test-session-secret-at-least-32-characters-long
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed test data
+        run: npm run db:seed
+
+      - name: Run DB integration tests
+        run: npm run test:db
+
+  # ─────────────────────────────────────────────────────────────
+  # E2E Tests (Playwright) - Full Stack
+  # ─────────────────────────────────────────────────────────────
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vantahire_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # API env vars
+      DATABASE_URL: postgresql://test:test@localhost:5432/vantahire_e2e
+      REDIS_URL: redis://localhost:6379
+      SESSION_SECRET: e2e-test-session-secret-at-least-32-characters
+      NODE_ENV: test
+      PORT: 3000
+      API_URL: http://localhost:3000
+      CLIENT_URL: http://localhost:8080
+      E2E_AUTH_TOKEN: ci-e2e-test-token
+      # Placeholder values for required config
+      GOOGLE_CLIENT_ID: placeholder
+      GOOGLE_CLIENT_SECRET: placeholder
+      LINKEDIN_CLIENT_ID: placeholder
+      LINKEDIN_CLIENT_SECRET: placeholder
+      GROQ_API_KEY: placeholder
+      DEEPGRAM_API_KEY: placeholder
+      TTS_PROVIDER: deepgram
+      MAX_FILE_SIZE_MB: 10
+      # Playwright env vars
+      E2E_API_URL: http://localhost:3000
+      PLAYWRIGHT_BASE_URL: http://localhost:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Install API dependencies
+        run: npm ci
+        working-directory: api
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: api
+
+      - name: Run database migrations
+        run: npx prisma db push --skip-generate
+        working-directory: api
+
+      - name: Seed test data
+        run: npm run db:seed
+        working-directory: api
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start API server
+        run: npm run dev &
+        working-directory: api
+
+      - name: Start frontend server
+        run: npm run dev &
+        env:
+          VITE_API_URL: http://localhost:3000
+
+      - name: Wait for servers to be ready
+        run: |
+          echo "Waiting for API..."
+          timeout 60 bash -c 'until curl -s http://localhost:3000/health > /dev/null; do sleep 1; done'
+          echo "API is ready!"
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -s http://localhost:8080 > /dev/null; do sleep 1; done'
+          echo "Frontend is ready!"
+
+      - name: Run E2E tests
+        run: npx playwright test --reporter=list
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────
+  # Build Check
+  # ─────────────────────────────────────────────────────────────
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Install API dependencies
+        run: npm ci
+        working-directory: api
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: api
+
+      - name: Build API
+        run: npm run build
+        working-directory: api
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:3000

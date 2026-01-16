@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { users, files } from "@/lib/api";
 import AppLayout from "@/components/AppLayout";
 import PageLoadingSkeleton from "@/components/PageLoadingSkeleton";
 import EmailPreview from "@/components/EmailPreview";
@@ -39,50 +40,55 @@ import {
   EyeOff,
   AlertTriangle,
 } from "lucide-react";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-interface RecruiterProfile {
-  company_name: string | null;
-  brand_color: string;
-  logo_url: string | null;
-  email_intro: string | null;
-  email_tips: string | null;
-  email_cta_text: string | null;
-  full_name: string | null;
-  email: string | null;
-  subscription_status: string | null;
+interface LocalProfile {
+  companyName: string | null;
+  brandColor: string;
+  logoUrl: string | null;
+  logoFileId: string | null;
+  emailIntro: string | null;
+  emailTips: string | null;
+  emailCtaText: string | null;
+  subscriptionStatus: string | null;
 }
 
 interface ApiKey {
   id: string;
   name: string;
-  key_prefix: string;
+  keyPrefix: string;
   status: string;
-  created_at: string;
-  last_request_at: string | null;
-  requests_today: number;
-  rate_limit_per_day: number;
-  expires_at: string | null;
+  createdAt: string;
+  lastRequestAt: string | null;
+  requestsToday: number;
+  rateLimitPerDay: number;
+  expiresAt: string | null;
 }
 
 const Settings = () => {
-  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const {
+    user,
+    recruiterProfile,
+    isLoading: authLoading,
+    isAuthenticated,
+    logout,
+    refreshRecruiterProfile,
+  } = useAuth();
+
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<RecruiterProfile>({
-    company_name: null,
-    brand_color: '#6366f1',
-    logo_url: null,
-    email_intro: null,
-    email_tips: null,
-    email_cta_text: null,
-    full_name: null,
-    email: null,
-    subscription_status: null,
+  const [profile, setProfile] = useState<LocalProfile>({
+    companyName: null,
+    brandColor: '#6366f1',
+    logoUrl: null,
+    logoFileId: null,
+    emailIntro: null,
+    emailTips: null,
+    emailCtaText: null,
+    subscriptionStatus: null,
   });
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [improvingEmail, setImprovingEmail] = useState(false);
-  
+
   // API Keys state
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loadingKeys, setLoadingKeys] = useState(false);
@@ -92,72 +98,41 @@ const Settings = () => {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
   const [showNewKey, setShowNewKey] = useState(false);
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
-  
+
   const logoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Redirect if not authenticated
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setUser(session?.user ?? null);
-        if (!session) {
-          navigate("/auth");
-        }
-      }
-    );
+    if (authLoading) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (!session) {
-        navigate("/auth");
-      } else {
-        fetchProfile(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("company_name, brand_color, logo_url, email_intro, email_tips, email_cta_text, full_name, email, subscription_status")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      if (data) {
-        setProfile({
-          company_name: data.company_name,
-          brand_color: data.brand_color || '#6366f1',
-          logo_url: data.logo_url,
-          email_intro: data.email_intro,
-          email_tips: data.email_tips,
-          email_cta_text: data.email_cta_text,
-          full_name: data.full_name,
-          email: data.email,
-          subscription_status: data.subscription_status,
-        });
-      }
-    } catch (error: any) {
-      console.error("Error fetching profile:", error);
-    } finally {
-      setLoading(false);
+    if (!isAuthenticated) {
+      navigate("/auth");
+      return;
     }
-  };
+
+    // Populate profile from recruiterProfile
+    if (recruiterProfile) {
+      setProfile({
+        companyName: recruiterProfile.companyName,
+        brandColor: recruiterProfile.brandColor || '#6366f1',
+        logoUrl: recruiterProfile.logoFileId ? files.getUrl(recruiterProfile.logoFileId) : null,
+        logoFileId: recruiterProfile.logoFileId,
+        emailIntro: recruiterProfile.emailIntro,
+        emailTips: recruiterProfile.emailTips,
+        emailCtaText: recruiterProfile.emailCtaText,
+        subscriptionStatus: recruiterProfile.subscriptionStatus,
+      });
+    }
+    setLoading(false);
+  }, [authLoading, isAuthenticated, recruiterProfile, navigate]);
 
   const fetchApiKeys = async () => {
     setLoadingKeys(true);
     try {
-      const { data, error } = await supabase
-        .from("api_keys")
-        .select("id, name, key_prefix, status, created_at, last_request_at, requests_today, rate_limit_per_day, expires_at")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setApiKeys(data || []);
+      const data = await users.apiKeys.list();
+      setApiKeys(data);
     } catch (error: any) {
       console.error("Error fetching API keys:", error);
     } finally {
@@ -166,10 +141,10 @@ const Settings = () => {
   };
 
   useEffect(() => {
-    if (user) {
+    if (isAuthenticated) {
       fetchApiKeys();
     }
-  }, [user]);
+  }, [isAuthenticated]);
 
   const createApiKey = async () => {
     if (!newKeyName.trim()) {
@@ -183,22 +158,16 @@ const Settings = () => {
 
     setCreatingKey(true);
     try {
-      const { data, error } = await supabase.rpc("generate_api_key", {
-        p_name: newKeyName.trim()
+      const result = await users.apiKeys.create(newKeyName.trim());
+
+      setNewlyCreatedKey(result.key);
+      setShowNewKey(true);
+      setNewKeyName("");
+      fetchApiKeys();
+      toast({
+        title: "API Key Created",
+        description: "Your new API key has been generated. Copy it now - you won't be able to see it again!"
       });
-
-      if (error) throw error;
-
-      if (data && data[0]) {
-        setNewlyCreatedKey(data[0].full_key);
-        setShowNewKey(true);
-        setNewKeyName("");
-        fetchApiKeys();
-        toast({
-          title: "API Key Created",
-          description: "Your new API key has been generated. Copy it now - you won't be able to see it again!"
-        });
-      }
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -213,13 +182,8 @@ const Settings = () => {
   const revokeApiKey = async (keyId: string) => {
     setDeletingKeyId(keyId);
     try {
-      const { error } = await supabase
-        .from("api_keys")
-        .update({ status: "revoked", revoked_at: new Date().toISOString() })
-        .eq("id", keyId);
+      await users.apiKeys.revoke(keyId);
 
-      if (error) throw error;
-      
       fetchApiKeys();
       toast({
         title: "API Key Revoked",
@@ -244,23 +208,18 @@ const Settings = () => {
   const saveProfile = async () => {
     if (!user) return;
     setSavingProfile(true);
-    
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          company_name: profile.company_name,
-          brand_color: profile.brand_color,
-          logo_url: profile.logo_url,
-          email_intro: profile.email_intro,
-          email_tips: profile.email_tips,
-          email_cta_text: profile.email_cta_text,
-          full_name: profile.full_name,
-        })
-        .eq("id", user.id);
 
-      if (error) throw error;
-      
+    try {
+      await users.updateRecruiterProfile({
+        companyName: profile.companyName,
+        brandColor: profile.brandColor,
+        emailIntro: profile.emailIntro,
+        emailTips: profile.emailTips,
+        emailCtaText: profile.emailCtaText,
+      });
+
+      await refreshRecruiterProfile();
+
       toast({
         title: "Settings Saved",
         description: "Your settings have been updated successfully."
@@ -277,60 +236,28 @@ const Settings = () => {
     }
   };
 
-  const getFreshAccessToken = async (): Promise<string | null> => {
-    try {
-      let { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error || !session) {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError || !refreshData.session) {
-          navigate("/auth");
-          return null;
-        }
-        session = refreshData.session;
-      }
-      
-      return session.access_token;
-    } catch (e) {
-      navigate("/auth");
-      return null;
-    }
-  };
-
   const improveEmailWithAI = async () => {
     setImprovingEmail(true);
-    const accessToken = await getFreshAccessToken();
-    if (!accessToken) {
-      setImprovingEmail(false);
-      return;
-    }
-    
+
     try {
-      const { data, error } = await supabase.functions.invoke("improve-email-copy", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: {
-          currentIntro: profile.email_intro,
-          currentTips: profile.email_tips,
-          currentCta: profile.email_cta_text,
-          companyName: profile.company_name,
-          tone: "professional"
-        }
+      const improved = await users.improveEmailCopy({
+        currentIntro: profile.emailIntro,
+        currentTips: profile.emailTips,
+        currentCta: profile.emailCtaText,
+        companyName: profile.companyName,
+        tone: "professional"
       });
 
-      if (error) throw error;
-
-      if (data?.improved) {
-        setProfile({
-          ...profile,
-          email_intro: data.improved.intro || profile.email_intro,
-          email_tips: data.improved.tips || profile.email_tips,
-          email_cta_text: data.improved.cta || profile.email_cta_text
-        });
-        toast({
-          title: "Email Copy Improved",
-          description: "AI has enhanced your email content."
-        });
-      }
+      setProfile({
+        ...profile,
+        emailIntro: improved.intro || profile.emailIntro,
+        emailTips: improved.tips || profile.emailTips,
+        emailCtaText: improved.cta || profile.emailCtaText
+      });
+      toast({
+        title: "Email Copy Improved",
+        description: "AI has enhanced your email content."
+      });
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -368,28 +295,14 @@ const Settings = () => {
     setUploadingLogo(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/logo-${Date.now()}.${fileExt}`;
+      const result = await users.uploadLogo(file);
 
-      if (profile.logo_url && profile.logo_url.includes('company-logos')) {
-        const oldPath = profile.logo_url.split('/company-logos/')[1];
-        if (oldPath) {
-          await supabase.storage.from('company-logos').remove([oldPath]);
-        }
-      }
+      setProfile({
+        ...profile,
+        logoUrl: result.url,
+        logoFileId: result.logoFileId
+      });
 
-      const { error: uploadError } = await supabase.storage
-        .from('company-logos')
-        .upload(fileName, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('company-logos')
-        .getPublicUrl(fileName);
-
-      setProfile({ ...profile, logo_url: publicUrl });
-      
       toast({
         title: "Logo Uploaded",
         description: "Your company logo has been uploaded."
@@ -410,13 +323,8 @@ const Settings = () => {
     if (!user) return;
 
     try {
-      if (profile.logo_url && profile.logo_url.includes('company-logos')) {
-        const oldPath = profile.logo_url.split('/company-logos/')[1];
-        if (oldPath) {
-          await supabase.storage.from('company-logos').remove([oldPath]);
-        }
-      }
-      setProfile({ ...profile, logo_url: null });
+      await users.deleteLogo();
+      setProfile({ ...profile, logoUrl: null, logoFileId: null });
       toast({ title: "Logo Removed" });
     } catch (error: any) {
       console.error("Error removing logo:", error);
@@ -424,11 +332,11 @@ const Settings = () => {
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/");
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return <PageLoadingSkeleton variant="form" withLayout showFooter />;
   }
 
@@ -496,18 +404,18 @@ const Settings = () => {
                   <Input
                     id="company_name"
                     placeholder="Enter your company name"
-                    value={profile.company_name || ""}
-                    onChange={(e) => setProfile({ ...profile, company_name: e.target.value })}
+                    value={profile.companyName || ""}
+                    onChange={(e) => setProfile({ ...profile, companyName: e.target.value })}
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label>Company Logo</Label>
                   <div className="flex items-center gap-4">
-                    {profile.logo_url ? (
+                    {profile.logoUrl ? (
                       <div className="relative">
                         <img
-                          src={profile.logo_url}
+                          src={profile.logoUrl}
                           alt="Company logo"
                           className="h-16 w-16 object-contain rounded-lg border bg-background"
                         />
@@ -554,13 +462,13 @@ const Settings = () => {
                     <input
                       type="color"
                       id="brand_color"
-                      value={profile.brand_color}
-                      onChange={(e) => setProfile({ ...profile, brand_color: e.target.value })}
+                      value={profile.brandColor}
+                      onChange={(e) => setProfile({ ...profile, brandColor: e.target.value })}
                       className="w-12 h-10 rounded cursor-pointer border-0"
                     />
                     <Input
-                      value={profile.brand_color}
-                      onChange={(e) => setProfile({ ...profile, brand_color: e.target.value })}
+                      value={profile.brandColor}
+                      onChange={(e) => setProfile({ ...profile, brandColor: e.target.value })}
                       className="w-32 font-mono"
                       placeholder="#6366f1"
                     />
@@ -602,8 +510,8 @@ const Settings = () => {
                       <Textarea
                         id="email_intro"
                         placeholder="You've been invited to complete an AI-powered interview for the [Job Role] position."
-                        value={profile.email_intro || ""}
-                        onChange={(e) => setProfile({ ...profile, email_intro: e.target.value })}
+                        value={profile.emailIntro || ""}
+                        onChange={(e) => setProfile({ ...profile, emailIntro: e.target.value })}
                         rows={3}
                         className="resize-none"
                       />
@@ -617,8 +525,8 @@ const Settings = () => {
                       <Textarea
                         id="email_tips"
                         placeholder="Find a quiet place with a stable internet connection. Speak clearly and take your time with each response."
-                        value={profile.email_tips || ""}
-                        onChange={(e) => setProfile({ ...profile, email_tips: e.target.value })}
+                        value={profile.emailTips || ""}
+                        onChange={(e) => setProfile({ ...profile, emailTips: e.target.value })}
                         rows={3}
                         className="resize-none"
                       />
@@ -632,8 +540,8 @@ const Settings = () => {
                       <Input
                         id="email_cta"
                         placeholder="Start Your Interview"
-                        value={profile.email_cta_text || ""}
-                        onChange={(e) => setProfile({ ...profile, email_cta_text: e.target.value })}
+                        value={profile.emailCtaText || ""}
+                        onChange={(e) => setProfile({ ...profile, emailCtaText: e.target.value })}
                       />
                       <p className="text-xs text-muted-foreground">
                         Text displayed on the main action button.
@@ -643,12 +551,12 @@ const Settings = () => {
 
                   <div className="space-y-2">
                     <EmailPreview
-                      companyName={profile.company_name || ""}
-                      brandColor={profile.brand_color}
-                      logoUrl={profile.logo_url}
-                      emailIntro={profile.email_intro || undefined}
-                      emailTips={profile.email_tips || undefined}
-                      emailCta={profile.email_cta_text || undefined}
+                      companyName={profile.companyName || ""}
+                      brandColor={profile.brandColor}
+                      logoUrl={profile.logoUrl}
+                      emailIntro={profile.emailIntro || undefined}
+                      emailTips={profile.emailTips || undefined}
+                      emailCta={profile.emailCtaText || undefined}
                     />
                   </div>
                 </div>
@@ -669,7 +577,7 @@ const Settings = () => {
                       Manage API keys for programmatic access to your account
                     </CardDescription>
                   </div>
-                  {profile.subscription_status && profile.subscription_status !== 'free' ? (
+                  {profile.subscriptionStatus && profile.subscriptionStatus !== 'FREE' ? (
                     <Button onClick={() => setCreateKeyDialogOpen(true)}>
                       <Plus className="w-4 h-4 mr-2" />
                       Create Key
@@ -678,7 +586,7 @@ const Settings = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                {profile.subscription_status === 'free' || !profile.subscription_status ? (
+                {profile.subscriptionStatus === 'FREE' || !profile.subscriptionStatus ? (
                   <div className="text-center py-8 space-y-4">
                     <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center">
                       <AlertTriangle className="w-6 h-6 text-muted-foreground" />
@@ -728,14 +636,14 @@ const Settings = () => {
                             </Badge>
                           </div>
                           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                            <span className="font-mono">{key.key_prefix}•••••••</span>
-                            <span>Created {new Date(key.created_at).toLocaleDateString()}</span>
-                            {key.last_request_at && (
-                              <span>Last used {new Date(key.last_request_at).toLocaleDateString()}</span>
+                            <span className="font-mono">{key.keyPrefix}•••••••</span>
+                            <span>Created {new Date(key.createdAt).toLocaleDateString()}</span>
+                            {key.lastRequestAt && (
+                              <span>Last used {new Date(key.lastRequestAt).toLocaleDateString()}</span>
                             )}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {key.requests_today} / {key.rate_limit_per_day} requests today
+                            {key.requestsToday} / {key.rateLimitPerDay} requests today
                           </div>
                         </div>
                         {key.status === 'active' && (
@@ -767,7 +675,7 @@ const Settings = () => {
                   Authorization: Bearer vt_your_api_key_here
                 </pre>
                 <p className="text-xs">
-                  Rate limits: {profile.subscription_status === 'enterprise' ? '10,000' : '1,000'} requests per day per key.
+                  Rate limits: {profile.subscriptionStatus === 'ENTERPRISE' ? '10,000' : '1,000'} requests per day per key.
                 </p>
               </CardContent>
             </Card>
@@ -790,9 +698,13 @@ const Settings = () => {
                   <Input
                     id="full_name"
                     placeholder="Your name"
-                    value={profile.full_name || ""}
-                    onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+                    value={user?.name || ""}
+                    disabled
+                    className="bg-muted"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Name is synced from your OAuth provider
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -800,7 +712,7 @@ const Settings = () => {
                   <Input
                     id="email"
                     type="email"
-                    value={user?.email || profile.email || ""}
+                    value={user?.email || ""}
                     disabled
                     className="bg-muted"
                   />
