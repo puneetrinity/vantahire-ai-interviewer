@@ -1,4 +1,6 @@
 # Welcome to your Lovable project
+
+This project is managed by arch-orchestrator.
 ## Project info
 **URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
 ## How can I edit this code?
